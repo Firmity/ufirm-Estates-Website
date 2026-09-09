@@ -26,7 +26,7 @@ export async function POST(request: Request) {
 
         await transporter.sendMail({
             from: `"UFIRM Website" <${process.env.EMAIL_USERNAME}>`,
-            to: 'ufirm.help@ufirm.in',
+            to: 'support@ufirm.in',
             subject: 'New Demo Request from Footer',
             html: `
                 <h2>New Demo Request</h2>

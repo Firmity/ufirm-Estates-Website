@@ -36,7 +36,7 @@ const ncrGroup: NCRGroupType = {
             description: "A-13/S-1, Dilshad Garde, Delhi-110095",
             Representative: "Shalini Malik",
             Number: "+91 9289902481",
-            MailId: "ufirm.help@ufirm.in",
+            MailId: "support@ufirm.in",
         },
         {
             name: "Noida",
@@ -44,7 +44,7 @@ const ncrGroup: NCRGroupType = {
                 "H-64, Sector 63, Noida, Gautam Buddha Nagar, Uttar Pradesh- 201307",
             Representative: "Shalini Malik",
             Number: "+91 9289902481",
-            MailId: "ufirm.help@ufirm.in",
+            MailId: "support@ufirm.in",
         },
         {
             name: "Faridabad",

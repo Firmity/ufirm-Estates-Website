@@ -84,10 +84,10 @@ const AboutUs = () => {
       address: 'A-13/S-1, Dilshad Garde, Delhi-110095',
       rep: 'Shalini Malik',
       phone: '+91 9289902481',
-      email: 'ufirm.help@ufirm.in',
+      email: 'support@ufirm.in',
       cities: [
-        { name: 'Delhi', description: 'A-13/S-1, Dilshad Garde, Delhi-110095', rep: 'Shalini Malik', phone: '+91 9289902481', email: 'ufirm.help@ufirm.in' },
-        { name: 'Noida Head Office', description: 'H-64, Sector 63, Noida, Gautam Buddha Nagar, Uttar Pradesh- 201307', rep: 'Shalini Malik', phone: '+91 9289902481', email: 'ufirm.help@ufirm.in' },
+        { name: 'Delhi', description: 'A-13/S-1, Dilshad Garde, Delhi-110095', rep: 'Shalini Malik', phone: '+91 9289902481', email: 'support@ufirm.in' },
+        { name: 'Noida Head Office', description: 'H-64, Sector 63, Noida, Gautam Buddha Nagar, Uttar Pradesh- 201307', rep: 'Shalini Malik', phone: '+91 9289902481', email: 'support@ufirm.in' },
         { name: 'Faridabad', description: 'Flat No. 0106, Tower T-10, RPS Savana Sector-88, Faridabad Haryana- 121002', rep: 'Pankaj Kumar', phone: '+91 9069363166', email: 'pankaj.kumar@ufirm.in' },
         { name: 'Gurugram', description: 'C3 102 PWO Housing Complex Sector-43 Gurugram', rep: 'Ajay Yadav', phone: '+91 9958453389', email: 'ajay.yadav@ufirm.in' }
       ]

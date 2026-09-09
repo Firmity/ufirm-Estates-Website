@@ -3,10 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { NavBar } from "@/components/NavBar";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { FaLinkedin, FaFacebook, FaInstagram, FaYoutube } from "react-icons/fa";
 import ReCAPTCHA from "react-google-recaptcha";
 import { HamburgerMenu } from "@/components/Hamburger";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const markers = [
     {
@@ -15,7 +16,7 @@ const markers = [
         address: "H-64, Sector-63, Noida, Gautam Buddha Nagar, Uttar Pradesh- 201307",
         representative: "Shalini Malik",
         phone: "+91 9289902481",
-        email: "ufirm.help@ufirm.in",
+        email: "support@ufirm.in",
         mapQuery: "Ufirm+Business+Park+(Raamah+Projects)",
     },
     {
@@ -24,7 +25,7 @@ const markers = [
         address: "A-13/S-1, Dilshad Garde, Delhi- 110095",
         representative: "Shalini Malik",
         phone: "+91 9289902481",
-        email: "ufirm.help@ufirm.in",
+        email: "support@ufirm.in",
         mapQuery: "a,+789%2F1%2F3,+Street+No.13,+Mandoli+Extension,+Mandoli,+Delhi,+110093",
     },
     {
@@ -144,6 +145,17 @@ export default function Contact() {
     const recaptchaRef = useRef<ReCAPTCHA>(null);
     const [, setIsVerified] = useState(false);
 
+    // NEXT_PUBLIC_* vars are inlined at build time. If this deployment's build
+    // env didn't set it, rendering <ReCAPTCHA sitekey={undefined}> throws
+    // synchronously on mount ("Missing required parameters: sitekey"), which
+    // crashes the whole page. Guard instead of trusting it's always present.
+    const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+    useEffect(() => {
+        if (!recaptchaSiteKey) {
+            console.error("[CONFIG_MISSING] NEXT_PUBLIC_RECAPTCHA_SITE_KEY is not set for this build — reCAPTCHA widget disabled.");
+        }
+    }, [recaptchaSiteKey]);
+
     const [selectedRegion, setSelectedRegion] = useState("North");
     const filteredMarkers = markers.filter((m) => m.region === selectedRegion);
     const [selectedLocation, setSelectedLocation] = useState(filteredMarkers[0]);
@@ -258,12 +270,16 @@ export default function Contact() {
 
                         <div className="w-fit h-[78px]  flex items-center justify-center rounded-md">
                             <span className="text-sm text-gray-500">
-                                <ReCAPTCHA
-                                    sitekey={process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY!}
-                                    ref={recaptchaRef}
-                                    onChange={handleCaptchaSubmission}
-                                    onExpired={() => setIsVerified(false)}
-                                />
+                                {recaptchaSiteKey ? (
+                                    <ErrorBoundary tag="[RECAPTCHA_WIDGET]">
+                                        <ReCAPTCHA
+                                            sitekey={recaptchaSiteKey}
+                                            ref={recaptchaRef}
+                                            onChange={handleCaptchaSubmission}
+                                            onExpired={() => setIsVerified(false)}
+                                        />
+                                    </ErrorBoundary>
+                                ) : null}
                             </span>
                         </div>
                         <button type="submit" className="bg-yellow-500 hover:bg-yellow-600 text-white w-full py-2 rounded-md font-medium">

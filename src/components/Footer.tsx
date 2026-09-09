@@ -174,7 +174,7 @@ const Footer = () => {
 
                         <div className=" space-y-1 text-sm font-medium">
                             <p className="text-gray-200">+91 9289902483</p>
-                            <p className="text-gray-300">ufirm.help@ufirm.in</p>
+                            <p className="text-gray-300">support@ufirm.in</p>
                         </div>
                     </div>
 

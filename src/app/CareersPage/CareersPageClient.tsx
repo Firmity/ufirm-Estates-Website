@@ -162,7 +162,6 @@ export function CareersPageClient() {
 
   useEffect(() => {
     fetchJobs();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Runs once the job list has loaded. Lands the visitor on the Open
@@ -187,7 +186,6 @@ export function CareersPageClient() {
       setTimeout(() => setHighlightedJobId(null), 1500);
     }, 150);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobParam, jobsLoading, allJobs]);
 
   const departmentOptions = useMemo(() => {
@@ -425,7 +423,7 @@ export function CareersPageClient() {
                       key={job.Id ?? idx}
                       id={`job-${job.Id}`}
                       className={clsx(
-                        "relative bg-white rounded-[8px] p-5 shadow-sm border transition-all duration-500",
+                        "group relative bg-white rounded-[8px] p-5 shadow-sm border transition-all duration-500",
                         isHighlighted
                           ? "bg-[#EAFBF0] border-[#86EFAC] shadow-[0_0_0_3px_rgba(34,197,94,0.18)]"
                           : "border-[#dbe3e7] hover:shadow-md hover:border-[#aec2cc]"
@@ -436,12 +434,14 @@ export function CareersPageClient() {
                           oddly against the rounded corners (looked like a
                           separate rectangle glued on, not part of the
                           card). This one lives inside the padding, with
-                          room on both sides. */}
+                          room on both sides, navy by default, and light
+                          blue on card hover (unless the green scroll-to
+                          highlight is active, which takes priority). */}
                       <span
                         aria-hidden="true"
                         className={clsx(
-                          "absolute left-2.5 top-3 bottom-3 w-1 rounded-full transition-colors duration-500",
-                          isHighlighted ? "bg-[#22C55E]" : "bg-[#1e3143]"
+                          "absolute left-2.5 top-3 bottom-3 w-1 rounded-full transition-colors duration-300",
+                          isHighlighted ? "bg-[#22C55E]" : "bg-[#1e3143] group-hover:bg-[#60A5FA]"
                         )}
                       />
 
@@ -472,31 +472,30 @@ export function CareersPageClient() {
                           )}
                         </div>
 
-                        <div className="flex sm:flex-col items-stretch sm:items-end gap-2 shrink-0">
-                          <div className="flex items-stretch gap-2">
-                            <NavButton
-                              type="button"
-                              variant="primary"
-                              onClick={() => {
-                                setAppliedJobInfo(job);
-                                setShowResumeForm(true);
-                              }}
-                            >
-                              Apply Now
-                            </NavButton>
-                            <NavButton
-                              type="button"
-                              variant="secondary"
-                              onClick={() => setViewDetailsJob(job)}
-                            >
-                              View details
-                            </NavButton>
-                          </div>
-                          {mounted && (
-                            <div className="flex justify-end">
-                              <ShareMenu url={getJobUrl(job.Id)} title={job.Title} />
-                            </div>
-                          )}
+                        {/* Apply Now, View details, and Share all sit in one
+                            row, vertically centered together — the same
+                            pattern as Contact us + Login in the navbar,
+                            not two buttons on one line with Share
+                            orphaned underneath. */}
+                        <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+                          <NavButton
+                            type="button"
+                            variant="primary"
+                            onClick={() => {
+                              setAppliedJobInfo(job);
+                              setShowResumeForm(true);
+                            }}
+                          >
+                            Apply Now
+                          </NavButton>
+                          <NavButton
+                            type="button"
+                            variant="secondary"
+                            onClick={() => setViewDetailsJob(job)}
+                          >
+                            View details
+                          </NavButton>
+                          {mounted && <ShareMenu url={getJobUrl(job.Id)} title={job.Title} />}
                         </div>
                       </div>
                     </div>
@@ -619,7 +618,7 @@ export function CareersPageClient() {
 
               {viewDetailsJob.Description ? (
                 <div className="mt-5 pt-5 border-t border-[#f0f3f5]">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#94A3B8] mb-1">
+                  <p className="text-lg font-bold text-[#1e3143] mb-2">
                     Full Description
                   </p>
                   <div

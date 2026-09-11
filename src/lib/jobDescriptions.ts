@@ -18,7 +18,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
-import { isKvConfigured, kvDelete, kvGet, kvSet } from "@/lib/kv";
+import { isKvConfigured, kvGet, kvSet } from "@/lib/kv";
 
 const KV_KEY = "job-descriptions";
 const DESCRIPTIONS_PATH = join(process.cwd(), "data", "job-descriptions.json");

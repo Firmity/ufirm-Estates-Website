@@ -89,13 +89,13 @@ export const HamburgerMenu = () => {
 
             {/* Menu Links */}
             {[
-              ["About Us", "/Aboutuspage"],
+              ["Hire", "/CareersPage"],
               ["Facility Management", "https://urest.in/"],
               ["Royal Nest Projects", "https://www.royalnestgroup.com/"],
               ["Facility Tech", "/OurInnovation"],
               ["Technical Services", "/TechnologiesPage"],
               ["Real Estate Advisory", "/Management&advisory"],
-              ["Hire", "/CareerPage"],
+              ["About Us", "/Aboutuspage"],
               ["Contact Us", "/ContactPage"],
             ].map(([label, href]) => (
               <Link

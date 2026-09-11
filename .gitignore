@@ -33,6 +33,10 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# runtime-written admin credentials (data/admin-credentials.json) — see
+# src/lib/adminAuth.ts. Never commit; this is a secret, generated locally.
+/data/
+
 # vercel
 .vercel
 

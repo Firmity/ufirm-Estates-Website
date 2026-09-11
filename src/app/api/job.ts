@@ -9,12 +9,33 @@ export type JobInfo = {
   Department: string;
   Designation: string;
   ImageUrl?: string;
+  // Optional — best-effort passthrough. The external API may or may not
+  // persist/return this field; the UI treats it as optional either way.
+  // See src/app/api/admin/jobs/route.ts.
+  Description?: string;
 };
 
 const BASE_URL = "https://api.urest.in:8096/api/jobs";
 
+// Used by the OLD /CareerPage only — left exactly as it was so that page's
+// server-side-filtered search keeps working unchanged. Do not repoint this
+// at /api/jobs; that route ignores `search` (filtering moved client-side
+// for the new /CareersPage — see getAllJobs below).
 export async function getJobs(search: string = ""): Promise<JobInfo[]> {
   const res = await fetch(`${BASE_URL}?search=${encodeURIComponent(search)}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to fetch jobs: ${text}`);
+  }
+  const data: JobInfo[] = await res.json();
+  return data;
+}
+
+// Used by the NEW /CareersPage and its admin dashboard. Fetches through our
+// own cached proxy (src/app/api/jobs/route.ts) instead of the slow external
+// API directly, and returns the full list — callers filter client-side.
+export async function getAllJobs(): Promise<JobInfo[]> {
+  const res = await fetch("/api/jobs");
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Failed to fetch jobs: ${text}`);

@@ -24,7 +24,7 @@ const OurBusiness = () => {
     image: '/Assets/ufirm.svg',
     description:
       'We bring together strategy, on ground execution and technology',
-    link: 'https://ufirm.in/',
+    link: 'https://ufirm-estates-consulting.vercel.app/',
     isHalf: false,
   },
   {

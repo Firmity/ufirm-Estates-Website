@@ -23,7 +23,7 @@ export const NavButton = React.forwardRef<HTMLButtonElement, NavButtonProps>(
       <button
         ref={ref}
         className={cn(
-          "px-6 py-2 rounded-[4px] font-medium text-sm transition-all duration-200",
+          "px-6 py-2 rounded-[4px] font-medium text-sm transition-all duration-200 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50",
           variantStyles[variant],
           className
         )}

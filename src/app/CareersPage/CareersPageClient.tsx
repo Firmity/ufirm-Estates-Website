@@ -27,7 +27,7 @@ const fadeUp = {
   initial: { opacity: 0, y: 12 },
   animate: { opacity: 1, y: 0 },
   transition: { duration: 0.4, ease: "easeOut" },
-};
+} as const;
 
 // Rendering for admin-authored Description HTML (written via the Tiptap
 // board in AdminDashboardClient — see RichTextEditor.tsx for the matching

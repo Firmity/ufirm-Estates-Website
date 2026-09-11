@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { ADMIN_SESSION_COOKIE, verifySessionCookieValue } from "@/lib/adminAuth";
 import { setDescription } from "@/lib/jobDescriptions";
+import { notifySubscribersOfNewJob } from "@/lib/jobAlerts";
 
 const EXTERNAL_JOBS_URL = "https://api.urest.in:8096/api/jobs";
 
@@ -114,6 +115,16 @@ export async function POST(req: NextRequest) {
         console.error("[JOB_DESCRIPTION_SAVE_ERR]", err);
       }
     }
+
+    // Notify "Get job alerts" subscribers — best-effort (this function
+    // never throws, see src/lib/jobAlerts.ts) so a flaky SMTP send can
+    // never turn a successful job posting into a failed request.
+    await notifySubscribersOfNewJob({
+      Title: payload.Title,
+      Department: payload.Department,
+      Designation: payload.Designation,
+      Id: createdId,
+    });
 
     return NextResponse.json(data, { status: 200 });
   } catch (err) {

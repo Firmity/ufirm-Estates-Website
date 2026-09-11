@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import clsx from "clsx";
 import {
   FaPlus,
   FaTrash,
@@ -14,6 +15,7 @@ import {
   FaPaperclip,
   FaPen,
   FaRedo,
+  FaBell,
 } from "react-icons/fa";
 import { getAllJobs, JobInfo } from "@/app/api/job";
 import { RichTextEditor } from "@/components/ui/RichTextEditor";
@@ -92,6 +94,15 @@ export function AdminDashboardClient() {
   const [descriptionSubmitting, setDescriptionSubmitting] = useState(false);
   const [descriptionError, setDescriptionError] = useState<string | null>(null);
 
+  // Open/Closed toggle — writes only to our own local status store (see
+  // src/lib/jobStatus.ts), same independence-from-upstream pattern as the
+  // description editor above.
+  const [statusUpdating, setStatusUpdating] = useState<number | null>(null);
+
+  // "Get job alerts" subscriber count — read-only here; people (un)subscribe
+  // themselves from the public page (see src/app/api/job-alerts/*).
+  const [subscriberCount, setSubscriberCount] = useState<number | null>(null);
+
   const loadJobs = async () => {
     setLoading(true);
     try {
@@ -108,6 +119,15 @@ export function AdminDashboardClient() {
 
   useEffect(() => {
     loadJobs();
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/admin/job-alerts")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && typeof data.count === "number") setSubscriberCount(data.count);
+      })
+      .catch((err) => console.error("[ADMIN_JOB_ALERTS_COUNT_ERR]", err));
   }, []);
 
   const filteredJobs = jobs.filter((job) =>
@@ -220,6 +240,37 @@ export function AdminDashboardClient() {
     }
   };
 
+  const handleStatusToggle = async (job: JobInfo) => {
+    if (!job.Id) return;
+    const nextStatus: "open" | "closed" = job.Status === "closed" ? "open" : "closed";
+    setStatusUpdating(job.Id);
+    try {
+      const res = await fetch(`/api/admin/jobs/${job.Id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+
+      if (res.status === 401) {
+        alert("Your session expired. Please log in again.");
+        router.push("/CareersPage/admin/login");
+        return;
+      }
+
+      if (!res.ok) {
+        alert("Failed to update status.");
+        return;
+      }
+
+      setJobs((prev) => prev.map((j) => (j.Id === job.Id ? { ...j, Status: nextStatus } : j)));
+    } catch (err) {
+      console.error("[ADMIN_JOB_STATUS_TOGGLE_ERR]", err);
+      alert("Failed to update status.");
+    } finally {
+      setStatusUpdating(null);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await fetch("/api/admin/logout", { method: "POST" });
@@ -296,6 +347,12 @@ export function AdminDashboardClient() {
           <div>
             <h1 className="text-xl sm:text-2xl font-bold">Careers Admin</h1>
             <p className="text-sm text-white/60">Manage job listings shown on the Careers page</p>
+            {subscriberCount !== null && (
+              <p className="flex items-center gap-1.5 text-xs text-white/50 mt-1">
+                <FaBell className="text-[10px]" />
+                {subscriberCount} job alert subscriber{subscriberCount === 1 ? "" : "s"}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <Link
@@ -380,6 +437,8 @@ export function AdminDashboardClient() {
                       <th className="px-4 py-3">CTC</th>
                       <th className="px-4 py-3">Education</th>
                       <th className="px-4 py-3">Posted</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Clicks</th>
                       <th className="px-4 py-3">Description</th>
                       <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
@@ -407,6 +466,23 @@ export function AdminDashboardClient() {
                         <td className="px-4 py-3 text-[#131720]">{job.CTC}</td>
                         <td className="px-4 py-3 text-[#131720]">{job.Education}</td>
                         <td className="px-4 py-3 text-[#131720]">{job.Posted}</td>
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={() => handleStatusToggle(job)}
+                            disabled={statusUpdating === job.Id}
+                            title="Click to toggle open/closed"
+                            className={clsx(
+                              "px-2 py-1 rounded-full text-xs font-semibold cursor-pointer transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed",
+                              job.Status === "closed"
+                                ? "bg-[#FEE2E2] text-[#B91C1C] hover:bg-red-200"
+                                : "bg-[#DCFCE7] text-[#15803D] hover:bg-green-200"
+                            )}
+                          >
+                            {statusUpdating === job.Id ? "…" : job.Status === "closed" ? "Closed" : "Open"}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3 text-[#131720]">{job.LinkClicks ?? 0}</td>
                         <td className="px-4 py-3">
                           {job.Description ? (
                             <span className="text-[#146995] text-xs font-medium">Added</span>
@@ -487,6 +563,24 @@ export function AdminDashboardClient() {
                       <dd className="text-[#131720]">{job.Posted || "—"}</dd>
                     </div>
                   </dl>
+                  <div className="flex items-center justify-between mt-3 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => handleStatusToggle(job)}
+                      disabled={statusUpdating === job.Id}
+                      className={clsx(
+                        "px-2 py-1 rounded-full font-semibold cursor-pointer transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed",
+                        job.Status === "closed"
+                          ? "bg-[#FEE2E2] text-[#B91C1C]"
+                          : "bg-[#DCFCE7] text-[#15803D]"
+                      )}
+                    >
+                      {statusUpdating === job.Id ? "…" : job.Status === "closed" ? "Closed" : "Open"}
+                    </button>
+                    <span className="text-[#64748B]">
+                      {job.LinkClicks ?? 0} link click{job.LinkClicks === 1 ? "" : "s"}
+                    </span>
+                  </div>
                   <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#f0f3f5]">
                     {job.Description ? (
                       <span className="text-[#146995] text-xs font-medium">Description added</span>

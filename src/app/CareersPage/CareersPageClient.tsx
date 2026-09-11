@@ -15,11 +15,22 @@ import {
   FaPaperclip,
   FaSearch,
   FaTimes,
+  FaBell,
 } from "react-icons/fa";
 import { getAllJobs, JobInfo } from "@/app/api/job";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { ShareMenu } from "@/components/ui/ShareMenu";
 import { NavButton } from "@/components/ui/NavButton";
+import { getRequisitionId } from "@/lib/requisitionId";
+
+type SortOption = "latest" | "oldest" | "open" | "closed";
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: "latest", label: "Latest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "open", label: "Open positions" },
+  { value: "closed", label: "Closed positions" },
+];
 
 // Fade/slide-up used everywhere on this page — one small, consistent motion,
 // not a different flourish per section.
@@ -111,9 +122,17 @@ export function CareersPageClient() {
   const [activeTab, setActiveTab] = useState<"positions" | "hire">("positions");
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("all");
+  const [sortBy, setSortBy] = useState<SortOption>("latest");
   const [allJobs, setAllJobs] = useState<JobInfo[]>([]);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [jobsLoading, setJobsLoading] = useState(true);
+
+  // "Get job alerts" — one-line email signup; notified the moment a new
+  // job is posted (src/lib/jobAlerts.ts + src/app/api/job-alerts/*).
+  const [alertEmail, setAlertEmail] = useState("");
+  const [alertHoneypot, setAlertHoneypot] = useState("");
+  const [alertStatus, setAlertStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [alertMessage, setAlertMessage] = useState("");
 
   // Deep-linking: /CareersPage?job=<id> scrolls to and briefly highlights
   // that one job, so a link shared on LinkedIn/etc. lands the visitor
@@ -184,6 +203,11 @@ export function CareersPageClient() {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
       setHighlightedJobId(targetId);
       setTimeout(() => setHighlightedJobId(null), 1500);
+
+      // Fire-and-forget click tracking (see src/lib/jobClicks.ts) — someone
+      // actually followed a shared link to this job. Never awaited, never
+      // allowed to affect the page if it fails.
+      fetch(`/api/jobs/${targetId}/track-click`, { method: "POST" }).catch(() => {});
     }, 150);
     return () => clearTimeout(t);
   }, [jobParam, jobsLoading, allJobs]);
@@ -198,7 +222,7 @@ export function CareersPageClient() {
 
   const filteredJobs = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return allJobs.filter((job) => {
+    let result = allJobs.filter((job) => {
       const matchesDept = department === "all" || job.Department === department;
       const matchesSearch =
         !q ||
@@ -207,7 +231,51 @@ export function CareersPageClient() {
         job.Department?.toLowerCase().includes(q);
       return matchesDept && matchesSearch;
     });
-  }, [allJobs, search, department]);
+
+    // "Open"/"Closed" act as a status filter, not just an ordering — showing
+    // only closed roles sorted by "latest" wouldn't make sense any other
+    // way. "Latest"/"Oldest" are pure ordering over whatever the search +
+    // department filters already narrowed down to.
+    if (sortBy === "open") {
+      result = result.filter((job) => (job.Status ?? "open") === "open");
+    } else if (sortBy === "closed") {
+      result = result.filter((job) => job.Status === "closed");
+    }
+
+    const sortedAscending = sortBy === "oldest";
+    return [...result].sort((a, b) => {
+      const dateA = a.Posted ? new Date(a.Posted).getTime() : 0;
+      const dateB = b.Posted ? new Date(b.Posted).getTime() : 0;
+      return sortedAscending ? dateA - dateB : dateB - dateA;
+    });
+  }, [allJobs, search, department, sortBy]);
+
+  const handleAlertSubscribe = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!alertEmail.trim() || alertStatus === "submitting") return;
+
+    setAlertStatus("submitting");
+    try {
+      const res = await fetch("/api/job-alerts/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: alertEmail, website: alertHoneypot }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setAlertStatus("success");
+        setAlertMessage(data.message || "You're subscribed to job alerts.");
+        setAlertEmail("");
+      } else {
+        setAlertStatus("error");
+        setAlertMessage(data.message || "Couldn't subscribe — try again.");
+      }
+    } catch (err) {
+      console.error("[JOB_ALERT_SUBSCRIBE_UI_ERR]", err);
+      setAlertStatus("error");
+      setAlertMessage("Couldn't subscribe — try again.");
+    }
+  };
 
   const handleResumeSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -349,6 +417,12 @@ export function CareersPageClient() {
                 options={departmentOptions}
                 className="sm:w-56"
               />
+              <Dropdown
+                value={sortBy}
+                onChange={(v) => setSortBy(v as SortOption)}
+                options={SORT_OPTIONS}
+                className="sm:w-48"
+              />
             </div>
           )}
         </motion.div>
@@ -394,6 +468,50 @@ export function CareersPageClient() {
                   Submit resume without applying
                 </button>
               </div>
+
+              {/* Get job alerts — real-time notification the moment a new
+                  role is posted (see src/lib/jobAlerts.ts), not a digest. */}
+              <form
+                onSubmit={handleAlertSubscribe}
+                className="flex flex-wrap items-center gap-2 mb-6 p-3 rounded-[8px] border border-[#dbe3e7] bg-white"
+              >
+                <FaBell className="text-[#1484bc] shrink-0" />
+                <p className="text-sm text-[#475569] mr-1">
+                  Get job alerts — email me when a new role is posted
+                </p>
+                <input
+                  type="email"
+                  required
+                  placeholder="you@email.com"
+                  value={alertEmail}
+                  onChange={(e) => {
+                    setAlertEmail(e.target.value);
+                    if (alertStatus !== "idle") setAlertStatus("idle");
+                  }}
+                  className="flex-1 min-w-[180px] px-3 py-1.5 rounded-[4px] border border-[#aec2cc] text-[#131720] text-sm focus:outline-none focus:ring-1 focus:ring-[#1484bc]"
+                />
+                {/* Honeypot: visually hidden, kept out of the tab order —
+                    same pattern as the resume form's honeypot below. */}
+                <input
+                  type="text"
+                  name="website"
+                  value={alertHoneypot}
+                  onChange={(e) => setAlertHoneypot(e.target.value)}
+                  tabIndex={-1}
+                  autoComplete="off"
+                  aria-hidden="true"
+                  className="absolute -left-[9999px] w-px h-px overflow-hidden"
+                />
+                <NavButton type="submit" variant="secondary" disabled={alertStatus === "submitting"}>
+                  {alertStatus === "submitting" ? "Subscribing…" : "Notify me"}
+                </NavButton>
+                {alertStatus === "success" && (
+                  <p className="w-full text-sm text-[#146995]">{alertMessage}</p>
+                )}
+                {alertStatus === "error" && (
+                  <p className="w-full text-sm text-red-600">{alertMessage}</p>
+                )}
+              </form>
 
               {jobsError && (
                 <div className="flex flex-wrap items-center gap-3 mb-4 px-4 py-3 rounded-[4px] bg-red-50 border border-red-200">
@@ -452,7 +570,15 @@ export function CareersPageClient() {
                             {job.Company && (
                               <span className="text-sm text-[#64748B]">{job.Company}</span>
                             )}
+                            {job.Status === "closed" && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-[#FEE2E2] text-[#B91C1C]">
+                                Closed
+                              </span>
+                            )}
                           </div>
+                          <p className="text-xs text-[#64748B] mt-0.5">
+                            Requisition ID {getRequisitionId(job.Id)}
+                          </p>
 
                           {/* Labeled fields, SAP/LinkedIn-style — every value
                               carries its own label so a visitor never has to
@@ -481,12 +607,13 @@ export function CareersPageClient() {
                           <NavButton
                             type="button"
                             variant="primary"
+                            disabled={job.Status === "closed"}
                             onClick={() => {
                               setAppliedJobInfo(job);
                               setShowResumeForm(true);
                             }}
                           >
-                            Apply Now
+                            {job.Status === "closed" ? "Closed" : "Apply Now"}
                           </NavButton>
                           <NavButton
                             type="button"
@@ -592,10 +719,20 @@ export function CareersPageClient() {
             >
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h3 className="text-xl font-bold text-[#1e3143]">{viewDetailsJob.Title}</h3>
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <h3 className="text-xl font-bold text-[#1e3143]">{viewDetailsJob.Title}</h3>
+                    {viewDetailsJob.Status === "closed" && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-[#FEE2E2] text-[#B91C1C]">
+                        Closed
+                      </span>
+                    )}
+                  </div>
                   {viewDetailsJob.Company && (
                     <p className="text-sm text-[#64748B] mt-0.5">{viewDetailsJob.Company}</p>
                   )}
+                  <p className="text-xs text-[#64748B] mt-0.5">
+                    Requisition ID {getRequisitionId(viewDetailsJob.Id)}
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -636,13 +773,14 @@ export function CareersPageClient() {
                 <NavButton
                   type="button"
                   variant="primary"
+                  disabled={viewDetailsJob.Status === "closed"}
                   onClick={() => {
                     setAppliedJobInfo(viewDetailsJob);
                     setShowResumeForm(true);
                     setViewDetailsJob(null);
                   }}
                 >
-                  Apply Now
+                  {viewDetailsJob.Status === "closed" ? "Closed" : "Apply Now"}
                 </NavButton>
                 <NavButton type="button" variant="secondary" onClick={() => setViewDetailsJob(null)}>
                   Close

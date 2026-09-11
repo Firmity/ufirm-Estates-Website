@@ -13,6 +13,12 @@ export type JobInfo = {
   // persist/return this field; the UI treats it as optional either way.
   // See src/app/api/admin/jobs/route.ts.
   Description?: string;
+  // Status and LinkClicks below don't exist upstream at all — api.urest.in
+  // has never heard of either. Both are merged in server-side from our own
+  // KV-backed stores (see src/lib/jobStatus.ts, src/lib/jobClicks.ts) by
+  // src/app/api/jobs/route.ts, the same way Description already is.
+  Status?: "open" | "closed";
+  LinkClicks?: number;
 };
 
 const BASE_URL = "https://api.urest.in:8096/api/jobs";

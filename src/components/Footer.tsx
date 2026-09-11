@@ -1,5 +1,6 @@
 "use client";
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { FaLinkedinIn, FaFacebookF, FaInstagram, FaYoutube } from "react-icons/fa";
@@ -67,6 +68,7 @@ const SubscribeSuccessModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: 
 };
 
 const Footer = () => {
+    const router = useRouter();
     const [email, setEmail] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [isSubscribed, setIsSubscribed] = useState(false);
@@ -336,14 +338,18 @@ const Footer = () => {
             <div className="bg-white py-6">
                 <div className="max-w-[1440px] mx-auto px-6 sm:px-12 md:px-16 lg:px-24 flex flex-col md:flex-row justify-between items-center gap-8">
                     <div className="flex items-center gap-5 flex-shrink-0">
-                        <Image
-                            src="/Assets/ufirmlogo.svg"
-                            alt="UFIRM ESTATES"
-                            width={80}
-                            height={40}
-                            className="object-contain cursor-pointer"
-                            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                        />
+                        {/* h-9 matches the navbar's Contact Us button height,
+                            same reasoning as NavBar.tsx's logo. */}
+                        <div className="h-9 w-auto flex items-center overflow-hidden">
+                            <Image
+                                src="/logos/Ufirm Logo Trimmed.png"
+                                alt="UFIRM ESTATES"
+                                width={100}
+                                height={36}
+                                className="h-9 w-auto object-contain cursor-pointer"
+                                onClick={() => router.push("/")}
+                            />
+                        </div>
                         {/* <Link
                             href="/login"
                             className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#1e3143] text-white text-xs font-semibold rounded-[6px] hover:bg-[#1f4e7a] active:bg-[#1484bc] transition-colors duration-200 whitespace-nowrap"
@@ -361,6 +367,8 @@ const Footer = () => {
                             <Link href="/Sitepage" className="hover:text-blue-600">Site Map</Link>
                             <span className="text-gray-400">|</span>
                             <Link href="/TermsofUsePage" className="hover:text-blue-600">Terms of use</Link>
+                            <span className="text-gray-400">|</span>
+                            <Link href="/CareersPage/admin" className="hover:text-blue-600">Manage</Link>
                         </div>
 
                         <p className="text-xs font-semibold text-gray-500">

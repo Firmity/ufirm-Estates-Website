@@ -2,9 +2,26 @@
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 
+const VALID_RESUME_TYPES = [
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
+const MAX_RESUME_BYTES = 5 * 1024 * 1024; // 5MB
+
 export async function POST(req: Request) {
   try {
     const formData = await req.formData();
+
+    // Honeypot: a hidden field named "website" that only a bot filling every
+    // field on the page would populate. Real users never see it. We still
+    // return 200 so the bot gets no signal that it was caught.
+    const honeypot = formData.get("website")?.toString().trim();
+    if (honeypot) {
+      console.warn("[RESUME_SPAM_BLOCKED] honeypot field was filled");
+      return NextResponse.json({ message: "Email sent!" }, { status: 200 });
+    }
+
     const file = formData.get("file") as File | null;
     const name = formData.get("name")?.toString() || "";
     const email = formData.get("email")?.toString() || "";
@@ -17,6 +34,26 @@ export async function POST(req: Request) {
       );
     }
 
+    // Server-side validation — the client-side checks in the form are UX
+    // only; anyone can call this endpoint directly and skip them.
+    if (!VALID_RESUME_TYPES.includes(file.type)) {
+      return NextResponse.json(
+        { message: "Invalid file type. Please upload a PDF, DOC, or DOCX." },
+        { status: 400 }
+      );
+    }
+    if (file.size > MAX_RESUME_BYTES) {
+      return NextResponse.json(
+        { message: "File size should not exceed 5MB." },
+        { status: 400 }
+      );
+    }
+
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(email)) {
+      return NextResponse.json({ message: "Invalid email address." }, { status: 400 });
+    }
+
     // Convert file to buffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
@@ -24,7 +61,7 @@ export async function POST(req: Request) {
     // Collect extra job info (if any)
     const jobInfo: Record<string, string> = {};
     for (const [key, value] of formData.entries()) {
-      if (!["file", "name", "email", "mobile"].includes(key)) {
+      if (!["file", "name", "email", "mobile", "website"].includes(key)) {
         jobInfo[key] = value.toString();
       }
     }
@@ -40,10 +77,8 @@ export async function POST(req: Request) {
       },
     });
 
-    // Optional: verify transporter connection
     await transporter.verify();
 
-    // Build email body
     const emailText = `
       New resume submission:
 
@@ -57,7 +92,6 @@ export async function POST(req: Request) {
         .join("\n")}
     `;
 
-    // Send email
     await transporter.sendMail({
       from: process.env.EMAIL_USERNAME, // safer than spoofing applicant email
       replyTo: email, // this way you can reply directly to applicant
@@ -74,7 +108,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ message: "Email sent!" }, { status: 200 });
   } catch (err) {
-    console.error("Error sending resume:", err);
+    console.error("[RESUME_SUBMIT_ERR]", err);
     return NextResponse.json(
       { message: "Failed to send email" },
       { status: 500 }

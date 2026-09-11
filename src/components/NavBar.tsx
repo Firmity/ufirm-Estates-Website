@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Menu, MenuItem } from "./ui/NavBar";
 import { NavButton } from "./ui/NavButton";
 import { cn } from "@/utils/cn";
-import { useLoginDialog } from "../app/CareerPage/LoginDialogContext";
+import { useLoginDialog } from "./LoginDialogContext";
 import { Compass } from "lucide-react";
 import {
     Menu as MenuIcon,
@@ -93,14 +93,15 @@ export function NavBar() {
 
     // Mobile Menu Links Data
     const mobileLinks = [
-        { label: "About Us", href: "/Aboutuspage", icon: Info },
+        // { label: "Hire", href: "/CareerPage", icon: UserPlus }, // old careers page — replaced by /CareersPage below
+        { label: "Hire", href: "/CareersPage", icon: UserPlus },
         // Changed icon to ClipboardList for "Facility Management"
         { label: "Facility Management", href: "https://urest.in/", icon: ClipboardList },
         { label: "Royal Nest Projects", href: "https://www.royalnestgroup.com/", icon: Home },
         { label: "Facility Tech", href: "/OurInnovation", icon: Cpu },
         { label: "Technical Services", href: "/TechnologiesPage", icon: Wrench },
         { label: "Real Estate Advisory", href: "/Management&advisory", icon: Briefcase },
-        { label: "Hire", href: "/CareerPage", icon: UserPlus },
+        { label: "About Us", href: "/Aboutuspage", icon: Info },
         // { label: "Track Complaints", href: "https://admin.urest.in:8092/", icon: Compass },
         // Removed Contact Us from here to treat it specially
     ];
@@ -123,14 +124,19 @@ export function NavBar() {
             <div className="relative z-50 bg-white">
                 <Menu
                     logo={
-                        <Image
-                            src="/Assets/ufirmlogo.svg"
-                            alt="UFirm Estates"
-                            width={80}
-                            height={40}
-                            className="cursor-pointer"
-                            onClick={() => router.push("/")}
-                        />
+                        // h-9 matches the Contact Us button's own height
+                        // (py-2 + text-sm ≈ 36px) so the top of the logo
+                        // lines up with the top of that button.
+                        <div className="h-9 w-auto flex items-center overflow-hidden">
+                            <Image
+                                src="/logos/Ufirm Logo Trimmed.png"
+                                alt="UFirm Estates"
+                                width={100}
+                                height={36}
+                                className="cursor-pointer h-9 w-auto object-contain"
+                                onClick={() => router.push("/")}
+                            />
+                        </div>
                     }
                     actions={
                         <>
@@ -185,11 +191,17 @@ export function NavBar() {
                             item="About us"
                             href="/Aboutuspage"
                         />
-                        <MenuItem
+                        {/* <MenuItem
                             setActive={setActive}
                             active={active}
                             item="Hire"
                             href="https://ufirm.in/CareerPage"
+                        /> */}
+                        <MenuItem
+                            setActive={setActive}
+                            active={active}
+                            item="Hire"
+                            href="/CareersPage"
                         />
                         {/* Removed Track Complaints from desktop menu */}
                     </div>

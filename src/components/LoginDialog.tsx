@@ -2,7 +2,7 @@
 
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useLoginDialog } from "@/app/CareerPage/LoginDialogContext";
+import { useLoginDialog } from "@/components/LoginDialogContext";
 import Link from "next/link";
 import { Building2, User, Briefcase } from "lucide-react";
 

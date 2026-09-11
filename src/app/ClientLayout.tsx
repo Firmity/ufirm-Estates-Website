@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { NavBar } from '@/components/NavBar';
 import { BackToTop } from '@/components/BackToTop';
 import { LoginDialog } from '@/components/LoginDialog';
-import { LoginDialogProvider } from '@/app/CareerPage/LoginDialogContext';
+import { LoginDialogProvider } from '@/components/LoginDialogContext';
 import dynamic from 'next/dynamic';
 
 const Footer = dynamic(() => import('@/components/Footer'), {

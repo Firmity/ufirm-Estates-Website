@@ -31,6 +31,8 @@
 
 import { NextResponse } from "next/server";
 import { getAllDescriptions } from "@/lib/jobDescriptions";
+import { getAllStatuses } from "@/lib/jobStatus";
+import { getAllClickCounts } from "@/lib/jobClicks";
 
 const EXTERNAL_JOBS_URL = "https://api.urest.in:8096/api/jobs";
 const CACHE_TTL_MS = 60 * 1000; // 60s — job listings don't change often enough to need less.
@@ -73,33 +75,45 @@ async function fetchUpstreamWithRetry(): Promise<unknown> {
   }
 }
 
-// Description is entirely our own data now (see src/lib/jobDescriptions.ts
-// for why) — this merges it into every job by Id, overriding whatever (if
-// anything) the upstream response has in that field.
-async function withLocalDescriptions(data: unknown): Promise<unknown> {
+// Description, Status, and LinkClicks are entirely our own data now (see
+// src/lib/jobDescriptions.ts, jobStatus.ts, jobClicks.ts for why) — this
+// merges all three into every job by Id, overriding whatever (if anything)
+// the upstream response has for Description and filling in defaults
+// (Status: "open", LinkClicks: 0) for the other two, which upstream has
+// never had a concept of at all.
+async function withLocalData(data: unknown): Promise<unknown> {
   if (!Array.isArray(data)) return data;
-  const descriptions = await getAllDescriptions();
+  const [descriptions, statuses, clicks] = await Promise.all([
+    getAllDescriptions(),
+    getAllStatuses(),
+    getAllClickCounts(),
+  ]);
   return data.map((job) => {
     if (!job || typeof job !== "object" || (job as { Id?: unknown }).Id == null) return job;
     const id = String((job as { Id: number | string }).Id);
-    return id in descriptions ? { ...job, Description: descriptions[id] } : job;
+    return {
+      ...job,
+      ...(id in descriptions ? { Description: descriptions[id] } : {}),
+      Status: statuses[id] ?? "open",
+      LinkClicks: clicks[id] ?? 0,
+    };
   });
 }
 
 export async function GET() {
   const now = Date.now();
   if (cache && now < cache.expiresAt) {
-    return NextResponse.json(await withLocalDescriptions(cache.data), { status: 200 });
+    return NextResponse.json(await withLocalData(cache.data), { status: 200 });
   }
 
   try {
     const data = await fetchUpstreamWithRetry();
     cache = { data, expiresAt: now + CACHE_TTL_MS };
-    return NextResponse.json(await withLocalDescriptions(data), { status: 200 });
+    return NextResponse.json(await withLocalData(data), { status: 200 });
   } catch (err) {
     console.error("[JOBS_PROXY_ERR]", err);
     // Prefer slightly-stale data over a broken page.
-    if (cache) return NextResponse.json(await withLocalDescriptions(cache.data), { status: 200 });
+    if (cache) return NextResponse.json(await withLocalData(cache.data), { status: 200 });
     return NextResponse.json({ message: "Failed to fetch jobs" }, { status: 502 });
   }
 }

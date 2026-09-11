@@ -66,16 +66,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // The loop above validates every REQUIRED_FIELDS key at runtime, but TS
+    // can't narrow a `Partial<NewJobBody>` through a dynamic loop over an
+    // array of keys — each field is still typed `string | undefined` to the
+    // compiler. Assert what's already been proven true rather than
+    // re-deriving it; `validatedBody` is only used for the fields the loop
+    // above actually checked.
+    const validatedBody = body as NewJobBody;
+
     // Posted date and Company are set server-side, not trusted from the client.
     const payload = {
-      Title: body.Title,
-      Type: body.Type,
+      Title: validatedBody.Title,
+      Type: validatedBody.Type,
       Posted: new Date().toISOString().split("T")[0],
-      Education: body.Education,
-      CTC: body.CTC,
+      Education: validatedBody.Education,
+      CTC: validatedBody.CTC,
       Company: "UFirm",
-      Department: body.Department,
-      Designation: body.Designation,
+      Department: validatedBody.Department,
+      Designation: validatedBody.Designation,
       ImageUrl: typeof body.ImageUrl === "string" ? body.ImageUrl : "",
       Description: typeof body.Description === "string" ? body.Description : "",
     };

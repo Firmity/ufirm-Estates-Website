@@ -66,14 +66,17 @@ export async function POST(req: Request) {
       }
     }
 
-    // Create transporter
+    // Create transporter — uses the dedicated careers mailbox (career@ufirm.in),
+    // NOT the general site's EMAIL_USERNAME/EMAIL_PASSWORD (crm@ufirm.in). Resume
+    // submissions are hiring-specific and must not go through the general
+    // contact-form inbox. See src/lib/jobAlerts.ts for the same split.
     const transporter = nodemailer.createTransport({
       host: "smtpout.secureserver.net",
       port: 465,
       secure: true,
       auth: {
-        user: process.env.EMAIL_USERNAME,
-        pass: process.env.EMAIL_PASSWORD,
+        user: process.env.CAREERS_EMAIL_USERNAME,
+        pass: process.env.CAREERS_EMAIL_PASSWORD,
       },
     });
 
@@ -93,9 +96,9 @@ export async function POST(req: Request) {
     `;
 
     await transporter.sendMail({
-      from: process.env.EMAIL_USERNAME, // safer than spoofing applicant email
+      from: process.env.CAREERS_EMAIL_USERNAME, // safer than spoofing applicant email
       replyTo: email, // this way you can reply directly to applicant
-      to: process.env.CONTACT_RECEIVER_EMAIL,
+      to: process.env.CAREERS_RECEIVER_EMAIL,
       subject: "Resume Submission - UFirm Careers",
       text: emailText,
       attachments: [

@@ -4,6 +4,18 @@ import { cookies } from "next/headers";
 import { ADMIN_SESSION_COOKIE, verifySessionCookieValue } from "@/lib/adminAuth";
 import { deleteDescription, setDescription } from "@/lib/jobDescriptions";
 import { deleteStatus, setStatus, type JobStatus } from "@/lib/jobStatus";
+import { deleteFieldIcons, setFieldIcons, type FieldIconMap, type IconableField } from "@/lib/jobFieldIcons";
+
+const ICONABLE_FIELD_KEYS: IconableField[] = ["Department", "Designation", "Type"];
+
+function isFieldIconMap(v: unknown): v is FieldIconMap {
+  if (v === null || typeof v !== "object") return false;
+  return Object.entries(v as Record<string, unknown>).every(
+    ([key, value]) =>
+      ICONABLE_FIELD_KEYS.includes(key as IconableField) &&
+      (typeof value === "string" || value === undefined)
+  );
+}
 
 const EXTERNAL_JOBS_URL = "https://api.urest.in:8096/api/jobs";
 
@@ -11,12 +23,13 @@ function isJobStatus(v: unknown): v is JobStatus {
   return v === "open" || v === "closed";
 }
 
-// PATCH updates Description and/or Status, and ONLY in our own local
-// stores (see src/lib/jobDescriptions.ts, src/lib/jobStatus.ts) — never
-// touches the upstream API. Description: the external API silently drops
-// it on write, so it's our data now. Status: the external API has never
-// had a concept of open/closed at all. Body may include either field,
-// both, or neither (neither is a no-op, not an error).
+// PATCH updates Description, Status, and/or per-field icons, and ONLY in
+// our own local stores (see src/lib/jobDescriptions.ts, src/lib/jobStatus.ts,
+// src/lib/jobFieldIcons.ts) — never touches the upstream API. Description:
+// the external API silently drops it on write, so it's our data now.
+// Status: the external API has never had a concept of open/closed at all.
+// Field icons: same story, purely decorative metadata of our own. Body may
+// include any subset of these three, or none (a no-op, not an error).
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -33,16 +46,16 @@ export async function PATCH(
       return NextResponse.json({ message: "Missing job id" }, { status: 400 });
     }
 
-    let body: { description?: unknown; status?: unknown };
+    let body: { description?: unknown; status?: unknown; fieldIcons?: unknown };
     try {
       body = await req.json();
     } catch {
       return NextResponse.json({ message: "Invalid request body" }, { status: 400 });
     }
 
-    if (body.description === undefined && body.status === undefined) {
+    if (body.description === undefined && body.status === undefined && body.fieldIcons === undefined) {
       return NextResponse.json(
-        { message: "Provide description and/or status" },
+        { message: "Provide description, status, and/or fieldIcons" },
         { status: 400 }
       );
     }
@@ -59,6 +72,16 @@ export async function PATCH(
         return NextResponse.json({ message: 'status must be "open" or "closed"' }, { status: 400 });
       }
       await setStatus(id, body.status);
+    }
+
+    if (body.fieldIcons !== undefined) {
+      if (!isFieldIconMap(body.fieldIcons)) {
+        return NextResponse.json(
+          { message: `fieldIcons must only contain keys from ${ICONABLE_FIELD_KEYS.join(", ")}, with string values` },
+          { status: 400 }
+        );
+      }
+      await setFieldIcons(id, body.fieldIcons);
     }
 
     return NextResponse.json({ message: "Updated" }, { status: 200 });
@@ -109,6 +132,11 @@ export async function DELETE(
       await deleteStatus(id);
     } catch (err) {
       console.error("[JOB_STATUS_DELETE_ERR]", err);
+    }
+    try {
+      await deleteFieldIcons(id);
+    } catch (err) {
+      console.error("[JOB_FIELD_ICONS_DELETE_ERR]", err);
     }
 
     return NextResponse.json({ message: "Deleted" }, { status: 200 });

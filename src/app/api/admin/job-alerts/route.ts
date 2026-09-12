@@ -1,8 +1,13 @@
 // src/app/api/admin/job-alerts/route.ts
 //
-// Session-gated: how many people are currently subscribed to job alerts —
-// shown in the admin dashboard header. Read-only; subscribing/unsubscribing
-// is entirely self-service via the public routes in src/app/api/job-alerts.
+// Admin-only read of the "Get job alerts" subscriber count. This is the
+// direct answer to "where do I view subscribed emails — can't find it in
+// the Redis dashboard": the list lives under the Redis key
+// "job-alert-subscribers" (src/lib/jobAlerts.ts), which won't appear in
+// the Upstash Data Browser until at least one person has subscribed — it's
+// simply empty/nonexistent right now, not hidden. This route only exposes
+// a COUNT, not the raw email list, to keep subscriber addresses out of the
+// browser/devtools; for the actual list, read the Redis key directly.
 
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
@@ -20,7 +25,7 @@ export async function GET() {
     const count = await getSubscriberCount();
     return NextResponse.json({ count }, { status: 200 });
   } catch (err) {
-    console.error("[JOB_ALERTS_COUNT_ERR]", err);
+    console.error("[ADMIN_JOB_ALERTS_COUNT_ERR]", err);
     return NextResponse.json({ message: "Failed to load subscriber count" }, { status: 500 });
   }
 }

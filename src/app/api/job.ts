@@ -19,6 +19,10 @@ export type JobInfo = {
   // src/app/api/jobs/route.ts, the same way Description already is.
   Status?: "open" | "closed";
   LinkClicks?: number;
+  // Per-field icon selection (Department/Designation/Type) — also entirely
+  // our own data, merged in the same way by src/app/api/jobs/route.ts. See
+  // src/lib/jobFieldIcons.ts and src/lib/iconRegistry.tsx.
+  FieldIcons?: Partial<Record<"Department" | "Designation" | "Type", string>>;
 };
 
 const BASE_URL = "https://api.urest.in:8096/api/jobs";

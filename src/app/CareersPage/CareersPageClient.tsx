@@ -25,6 +25,7 @@ import { NavButton } from "@/components/ui/NavButton";
 import { getRequisitionId } from "@/lib/requisitionId";
 import { getFieldIcon } from "@/lib/iconRegistry";
 import { formatRelativeTime } from "@/lib/relativeTime";
+import { formatCtc } from "@/lib/ctcFormat";
 
 type SortOption = "latest" | "oldest" | "open" | "closed";
 
@@ -85,9 +86,9 @@ const JOB_DESCRIPTION_CLASS =
 // supplementary (see FieldLabel below), never a replacement for the label.
 //
 // iconKey (optional) — set by an admin per-job in the Post Job form (see
-// AdminDashboardClient.tsx + src/lib/jobFieldIcons.ts) for Department/Role/
-// Employment Type only. Most jobs will have none set; that's a fully valid
-// state, not a missing-data bug.
+// AdminDashboardClient.tsx + src/lib/jobFieldIcons.ts) for any of
+// Department/Role/Employment Type/Education/CTC/Posted. Most jobs will have
+// none set; that's a fully valid state, not a missing-data bug.
 type JobField = { label: string; value: string; iconKey?: string };
 
 function getJobFields(job: JobInfo): JobField[] {
@@ -95,9 +96,13 @@ function getJobFields(job: JobInfo): JobField[] {
     job.Department && { label: "Department", value: job.Department, iconKey: job.FieldIcons?.Department },
     job.Designation && { label: "Role", value: job.Designation, iconKey: job.FieldIcons?.Designation },
     job.Type && { label: "Employment Type", value: job.Type, iconKey: job.FieldIcons?.Type },
-    job.Education && { label: "Education", value: job.Education },
-    job.CTC && { label: "CTC", value: job.CTC },
-    job.Posted && { label: "Posted", value: job.Posted },
+    job.Education && { label: "Education", value: job.Education, iconKey: job.FieldIcons?.Education },
+    job.CTC && { label: "CTC", value: formatCtc(job.CTC, job.CtcFrequency), iconKey: job.FieldIcons?.CTC },
+    job.Posted && { label: "Posted", value: job.Posted, iconKey: job.FieldIcons?.Posted },
+    // No icon option for Apply By (not one of the admin's six iconable
+    // fields — see src/lib/jobFieldIcons.ts) and no icon looks fine here;
+    // it's a deadline, not a descriptive attribute like the others.
+    job.EndDate && { label: "Apply By", value: job.EndDate },
   ].filter(Boolean) as JobField[];
 }
 

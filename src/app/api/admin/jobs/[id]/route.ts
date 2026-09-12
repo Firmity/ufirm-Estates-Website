@@ -5,8 +5,18 @@ import { ADMIN_SESSION_COOKIE, verifySessionCookieValue } from "@/lib/adminAuth"
 import { deleteDescription, setDescription } from "@/lib/jobDescriptions";
 import { deleteStatus, setStatus, type JobStatus } from "@/lib/jobStatus";
 import { deleteFieldIcons, setFieldIcons, type FieldIconMap, type IconableField } from "@/lib/jobFieldIcons";
+import { deleteExtras, setExtras, type CtcFrequency } from "@/lib/jobExtras";
 
-const ICONABLE_FIELD_KEYS: IconableField[] = ["Department", "Designation", "Type"];
+const ICONABLE_FIELD_KEYS: IconableField[] = [
+  "Department",
+  "Designation",
+  "Type",
+  "Education",
+  "CTC",
+  "Posted",
+];
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function isFieldIconMap(v: unknown): v is FieldIconMap {
   if (v === null || typeof v !== "object") return false;
@@ -23,13 +33,14 @@ function isJobStatus(v: unknown): v is JobStatus {
   return v === "open" || v === "closed";
 }
 
-// PATCH updates Description, Status, and/or per-field icons, and ONLY in
-// our own local stores (see src/lib/jobDescriptions.ts, src/lib/jobStatus.ts,
-// src/lib/jobFieldIcons.ts) — never touches the upstream API. Description:
-// the external API silently drops it on write, so it's our data now.
-// Status: the external API has never had a concept of open/closed at all.
-// Field icons: same story, purely decorative metadata of our own. Body may
-// include any subset of these three, or none (a no-op, not an error).
+// PATCH updates Description, Status, per-field icons, and/or the CTC
+// frequency / end date extras, and ONLY in our own local stores (see
+// src/lib/jobDescriptions.ts, src/lib/jobStatus.ts, src/lib/jobFieldIcons.ts,
+// src/lib/jobExtras.ts) — never touches the upstream API. Description: the
+// external API silently drops it on write, so it's our data now. Status,
+// field icons, CTC frequency, and end date: the external API has never had
+// a concept of any of these at all. Body may include any subset of these
+// five, or none (a no-op, not an error).
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -46,16 +57,28 @@ export async function PATCH(
       return NextResponse.json({ message: "Missing job id" }, { status: 400 });
     }
 
-    let body: { description?: unknown; status?: unknown; fieldIcons?: unknown };
+    let body: {
+      description?: unknown;
+      status?: unknown;
+      fieldIcons?: unknown;
+      ctcFrequency?: unknown;
+      endDate?: unknown;
+    };
     try {
       body = await req.json();
     } catch {
       return NextResponse.json({ message: "Invalid request body" }, { status: 400 });
     }
 
-    if (body.description === undefined && body.status === undefined && body.fieldIcons === undefined) {
+    if (
+      body.description === undefined &&
+      body.status === undefined &&
+      body.fieldIcons === undefined &&
+      body.ctcFrequency === undefined &&
+      body.endDate === undefined
+    ) {
       return NextResponse.json(
-        { message: "Provide description, status, and/or fieldIcons" },
+        { message: "Provide description, status, fieldIcons, ctcFrequency, and/or endDate" },
         { status: 400 }
       );
     }
@@ -82,6 +105,31 @@ export async function PATCH(
         );
       }
       await setFieldIcons(id, body.fieldIcons);
+    }
+
+    if (body.ctcFrequency !== undefined) {
+      if (body.ctcFrequency !== "annual" && body.ctcFrequency !== "monthly") {
+        return NextResponse.json(
+          { message: 'ctcFrequency must be "annual" or "monthly"' },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (body.endDate !== undefined) {
+      if (typeof body.endDate !== "string" || (body.endDate !== "" && !DATE_PATTERN.test(body.endDate))) {
+        return NextResponse.json(
+          { message: "endDate must be a yyyy-mm-dd date, or an empty string to clear it" },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (body.ctcFrequency !== undefined || body.endDate !== undefined) {
+      await setExtras(id, {
+        CtcFrequency: body.ctcFrequency as CtcFrequency | undefined,
+        EndDate: body.endDate as string | undefined,
+      });
     }
 
     return NextResponse.json({ message: "Updated" }, { status: 200 });
@@ -120,9 +168,9 @@ export async function DELETE(
       );
     }
 
-    // Purge the locally-stored description and status so a future job that
-    // happens to reuse this numeric Id doesn't inherit a stranger's text
-    // or get born pre-closed.
+    // Purge every locally-stored field so a future job that happens to
+    // reuse this numeric Id doesn't inherit a stranger's text, get born
+    // pre-closed, or inherit a stale CTC frequency/end date.
     try {
       await deleteDescription(id);
     } catch (err) {
@@ -137,6 +185,11 @@ export async function DELETE(
       await deleteFieldIcons(id);
     } catch (err) {
       console.error("[JOB_FIELD_ICONS_DELETE_ERR]", err);
+    }
+    try {
+      await deleteExtras(id);
+    } catch (err) {
+      console.error("[JOB_EXTRAS_DELETE_ERR]", err);
     }
 
     return NextResponse.json({ message: "Deleted" }, { status: 200 });

@@ -34,6 +34,19 @@ import { getAllDescriptions } from "@/lib/jobDescriptions";
 import { getAllStatuses } from "@/lib/jobStatus";
 import { getAllClickCounts } from "@/lib/jobClicks";
 import { getAllFieldIcons } from "@/lib/jobFieldIcons";
+import { getAllExtras } from "@/lib/jobExtras";
+
+// Belt-and-suspenders alongside the MAX_IMAGE_URL_LENGTH guard in
+// src/app/api/admin/jobs/route.ts: gives this route real room to run its
+// full UPSTREAM_TIMEOUT_MS + one retry (up to ~50s) before Vercel's own
+// function timeout kills it mid-flight. Without this, a plan's shorter
+// default execution limit can kill the function before our own timeout
+// logic even gets to return its 502 — the connection just drops, which is
+// what a hung, JSON-less fetch looks like to the browser (confirmed in
+// production against an oversized job poster — see MAX_IMAGE_URL_LENGTH's
+// comment). Vercel clamps this to whatever the deployment's plan actually
+// allows; it's a no-op, never an error, on a plan with a lower ceiling.
+export const maxDuration = 60;
 
 const EXTERNAL_JOBS_URL = "https://api.urest.in:8096/api/jobs";
 const CACHE_TTL_MS = 60 * 1000; // 60s — job listings don't change often enough to need less.
@@ -84,21 +97,29 @@ async function fetchUpstreamWithRetry(): Promise<unknown> {
 // never had a concept of at all.
 async function withLocalData(data: unknown): Promise<unknown> {
   if (!Array.isArray(data)) return data;
-  const [descriptions, statuses, clicks, fieldIcons] = await Promise.all([
+  const [descriptions, statuses, clicks, fieldIcons, extras] = await Promise.all([
     getAllDescriptions(),
     getAllStatuses(),
     getAllClickCounts(),
     getAllFieldIcons(),
+    getAllExtras(),
   ]);
   return data.map((job) => {
     if (!job || typeof job !== "object" || (job as { Id?: unknown }).Id == null) return job;
     const id = String((job as { Id: number | string }).Id);
+    const jobExtras = extras[id];
     return {
       ...job,
       ...(id in descriptions ? { Description: descriptions[id] } : {}),
       Status: statuses[id] ?? "open",
       LinkClicks: clicks[id] ?? 0,
       ...(id in fieldIcons ? { FieldIcons: fieldIcons[id] } : {}),
+      // CtcFrequency always defaults to "annual" (never left undefined) —
+      // every CTC value that predates this feature was an annual figure,
+      // so treating "no stored frequency" as monthly would misrepresent
+      // every job created before today.
+      CtcFrequency: jobExtras?.CtcFrequency ?? "annual",
+      ...(jobExtras?.EndDate ? { EndDate: jobExtras.EndDate } : {}),
     };
   });
 }

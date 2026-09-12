@@ -32,6 +32,8 @@ import {
   FaChartLine,
   FaHeadset,
   FaTruck,
+  FaMoneyBillWave,
+  FaCalendarAlt,
 } from "react-icons/fa";
 import type { IconableField } from "@/lib/jobFieldIcons";
 
@@ -52,6 +54,8 @@ export const FIELD_ICON_OPTIONS: FieldIconOption[] = [
   { key: "chart", label: "Chart", Icon: FaChartLine },
   { key: "headset", label: "Support", Icon: FaHeadset },
   { key: "truck", label: "Logistics", Icon: FaTruck },
+  { key: "money", label: "Money", Icon: FaMoneyBillWave },
+  { key: "calendar", label: "Calendar", Icon: FaCalendarAlt },
 ];
 
 export function getFieldIcon(key: string | undefined | null): IconType | null {
@@ -66,4 +70,7 @@ export const ICONABLE_FIELDS: { key: IconableField; label: string }[] = [
   { key: "Department", label: "Department" },
   { key: "Designation", label: "Role" },
   { key: "Type", label: "Employment Type" },
+  { key: "Education", label: "Education" },
+  { key: "CTC", label: "CTC" },
+  { key: "Posted", label: "Posted" },
 ];

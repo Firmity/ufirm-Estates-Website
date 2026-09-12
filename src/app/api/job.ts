@@ -19,10 +19,17 @@ export type JobInfo = {
   // src/app/api/jobs/route.ts, the same way Description already is.
   Status?: "open" | "closed";
   LinkClicks?: number;
-  // Per-field icon selection (Department/Designation/Type) — also entirely
-  // our own data, merged in the same way by src/app/api/jobs/route.ts. See
-  // src/lib/jobFieldIcons.ts and src/lib/iconRegistry.tsx.
-  FieldIcons?: Partial<Record<"Department" | "Designation" | "Type", string>>;
+  // Per-field icon selection (Department/Designation/Type/Education/CTC/
+  // Posted) — also entirely our own data, merged in the same way by
+  // src/app/api/jobs/route.ts. See src/lib/jobFieldIcons.ts and
+  // src/lib/iconRegistry.tsx.
+  FieldIcons?: Partial<Record<"Department" | "Designation" | "Type" | "Education" | "CTC" | "Posted", string>>;
+  // CtcFrequency/EndDate: same "our own data merged on top" story, from
+  // src/lib/jobExtras.ts. CtcFrequency has no stored default — treat a
+  // missing value as "annual" (matches every pre-existing CTC value in this
+  // app, e.g. "3.5 - 4.5 LPA", which was always an annual figure).
+  CtcFrequency?: "annual" | "monthly";
+  EndDate?: string;
 };
 
 const BASE_URL = "https://api.urest.in:8096/api/jobs";

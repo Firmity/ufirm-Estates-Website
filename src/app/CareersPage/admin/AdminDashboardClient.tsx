@@ -23,7 +23,13 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { getRequisitionId } from "@/lib/requisitionId";
 import { formatRelativeTime } from "@/lib/relativeTime";
 import { FIELD_ICON_OPTIONS, getFieldIcon } from "@/lib/iconRegistry";
+import { formatCtc } from "@/lib/ctcFormat";
 import type { FieldIconMap, IconableField } from "@/lib/jobFieldIcons";
+// Type-only import — src/lib/jobExtras.ts pulls in `fs`/`path` for its
+// Redis/local-file storage and can never be imported for a runtime value
+// from a "use client" file without breaking the browser bundle. A `type`
+// import is erased entirely at compile time, so this is safe.
+import type { CtcFrequency } from "@/lib/jobExtras";
 
 type JobDraft = {
   Title: string;
@@ -34,9 +40,14 @@ type JobDraft = {
   Designation: string;
   Description: string;
   ImageUrl: string;
-  // Icon picked per field (Department/Designation/Type only) — see
-  // src/lib/jobFieldIcons.ts + src/lib/iconRegistry.tsx.
+  // Icon picked per field — see src/lib/jobFieldIcons.ts + iconRegistry.tsx.
   FieldIcons: FieldIconMap;
+  // CTC pay frequency + optional application end date — local-only, see
+  // src/lib/jobExtras.ts. CtcFrequency always has a value (defaults to
+  // "annual"); EndDate is "" when not set (not undefined) so the date
+  // input stays a controlled component.
+  CtcFrequency: CtcFrequency;
+  EndDate: string;
 };
 
 const EMPTY_DRAFT: JobDraft = {
@@ -49,21 +60,30 @@ const EMPTY_DRAFT: JobDraft = {
   Description: "",
   ImageUrl: "",
   FieldIcons: {},
+  CtcFrequency: "annual",
+  EndDate: "",
 };
 
-// iconField (optional) — only Department/Designation/Type get the icon
-// picker (see ICONABLE_FIELD_KEYS below); Title/Education/CTC don't, same
-// set the public page's getJobFields() treats as iconable.
+const CTC_FREQUENCY_OPTIONS: { value: CtcFrequency; label: string }[] = [
+  { value: "annual", label: "Annual" },
+  { value: "monthly", label: "Monthly" },
+];
+
+// iconField (optional) — every field here now gets an icon picker except
+// Title (a free-text headline an icon wouldn't meaningfully label). CTC's
+// pay-frequency dropdown and Posted's icon picker (Posted has no input of
+// its own — it's set server-side, see src/app/api/admin/jobs/route.ts) are
+// both handled as special cases in the form JSX below, not through this array.
 const FORM_FIELDS: {
-  key: keyof Omit<JobDraft, "ImageUrl" | "Description" | "FieldIcons">;
+  key: keyof Omit<JobDraft, "ImageUrl" | "Description" | "FieldIcons" | "CtcFrequency" | "EndDate">;
   label: string;
   placeholder: string;
   iconField?: IconableField;
 }[] = [
   { key: "Title", label: "Job Title", placeholder: "e.g. Facility Executive" },
   { key: "Type", label: "Job Type", placeholder: "e.g. Full-time", iconField: "Type" },
-  { key: "Education", label: "Education", placeholder: "e.g. Graduate" },
-  { key: "CTC", label: "CTC", placeholder: "e.g. 3.5 - 4.5 LPA" },
+  { key: "Education", label: "Education", placeholder: "e.g. Graduate", iconField: "Education" },
+  { key: "CTC", label: "CTC", placeholder: "e.g. 3.5 - 4.5 LPA", iconField: "CTC" },
   { key: "Department", label: "Department", placeholder: "e.g. Facility Management", iconField: "Department" },
   { key: "Designation", label: "Designation", placeholder: "e.g. Technician", iconField: "Designation" },
 ];
@@ -141,6 +161,20 @@ const STATUS_FILTER_OPTIONS = [
   { value: "closed", label: "Closed" },
 ];
 
+// Poster images are stored as base64 data URIs directly on the job record
+// (no blob storage / CDN in this stack — see the ImageUrl field). Every
+// visitor's page load and every admin dashboard load re-fetches ALL jobs in
+// one array from src/app/api/jobs/route.ts, so one oversized image doesn't
+// just cost that one job — it bloats the WHOLE listings payload and can
+// push the proxy route past its upstream fetch timeout, taking down the
+// entire Careers page for everyone (confirmed in production: an AI-
+// generated poster with embedded C2PA provenance metadata ballooned past
+// this and made /api/jobs hang indefinitely). Capped well under that
+// failure point; server-side enforcement lives in
+// src/app/api/admin/jobs/route.ts so this can't be bypassed by calling the
+// API directly.
+const MAX_POSTER_BYTES = 700 * 1024; // 700KB raw file (~933KB once base64-encoded)
+
 const EMPTY_CREDENTIALS_FORM = {
   currentPassword: "",
   newUsername: "",
@@ -172,6 +206,7 @@ export function AdminDashboardClient() {
   const [showForm, setShowForm] = useState(false);
   const [draft, setDraft] = useState<JobDraft>(EMPTY_DRAFT);
   const [posterFileName, setPosterFileName] = useState("");
+  const [posterError, setPosterError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [showCredentialsForm, setShowCredentialsForm] = useState(false);
@@ -185,6 +220,11 @@ export function AdminDashboardClient() {
   // description to that API silently dropping the field.
   const [editingDescriptionFor, setEditingDescriptionFor] = useState<JobInfo | null>(null);
   const [descriptionDraft, setDescriptionDraft] = useState("");
+  // CTC frequency + end date are edited in the same modal (renamed "Edit
+  // Job Details" below) — same PATCH call as description, see
+  // handleDescriptionSave and src/lib/jobExtras.ts.
+  const [detailsCtcFrequency, setDetailsCtcFrequency] = useState<CtcFrequency>("annual");
+  const [detailsEndDate, setDetailsEndDate] = useState("");
   const [descriptionSubmitting, setDescriptionSubmitting] = useState(false);
   const [descriptionError, setDescriptionError] = useState<string | null>(null);
 
@@ -234,6 +274,7 @@ export function AdminDashboardClient() {
   const openCreateForm = () => {
     setDraft(EMPTY_DRAFT);
     setPosterFileName("");
+    setPosterError(null);
     setShowForm(true);
   };
 
@@ -262,6 +303,7 @@ export function AdminDashboardClient() {
       setShowForm(false);
       setDraft(EMPTY_DRAFT);
       setPosterFileName("");
+      setPosterError(null);
       await loadJobs();
     } catch (err) {
       console.error("[ADMIN_JOB_SUBMIT_ERR]", err);
@@ -299,6 +341,8 @@ export function AdminDashboardClient() {
   const openDescriptionEditor = (job: JobInfo) => {
     setEditingDescriptionFor(job);
     setDescriptionDraft(job.Description || "");
+    setDetailsCtcFrequency(job.CtcFrequency ?? "annual");
+    setDetailsEndDate(job.EndDate || "");
     setDescriptionError(null);
   };
 
@@ -310,7 +354,11 @@ export function AdminDashboardClient() {
       const res = await fetch(`/api/admin/jobs/${editingDescriptionFor.Id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description: descriptionDraft }),
+        body: JSON.stringify({
+          description: descriptionDraft,
+          ctcFrequency: detailsCtcFrequency,
+          endDate: detailsEndDate,
+        }),
       });
 
       if (res.status === 401) {
@@ -321,12 +369,21 @@ export function AdminDashboardClient() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({ message: "Request failed." }));
-        setDescriptionError(data.message || "Failed to save description.");
+        setDescriptionError(data.message || "Failed to save changes.");
         return;
       }
 
       setJobs((prev) =>
-        prev.map((j) => (j.Id === editingDescriptionFor.Id ? { ...j, Description: descriptionDraft } : j))
+        prev.map((j) =>
+          j.Id === editingDescriptionFor.Id
+            ? {
+                ...j,
+                Description: descriptionDraft,
+                CtcFrequency: detailsCtcFrequency,
+                EndDate: detailsEndDate || undefined,
+              }
+            : j
+        )
       );
       setEditingDescriptionFor(null);
     } catch (err) {
@@ -542,6 +599,7 @@ export function AdminDashboardClient() {
                       <th className="px-4 py-3">CTC</th>
                       <th className="px-4 py-3">Education</th>
                       <th className="px-4 py-3">Posted</th>
+                      <th className="px-4 py-3">Apply By</th>
                       {/* Req ID sits immediately before Status so the two
                           columns land next to each other — same "status to
                           the right of requisition ID" placement as the
@@ -579,16 +637,21 @@ export function AdminDashboardClient() {
                         <td className="px-4 py-3 text-[#131720]">
                           <FieldValueWithIcon iconKey={job.FieldIcons?.Type} value={job.Type} />
                         </td>
-                        <td className="px-4 py-3 text-[#131720]">{job.CTC}</td>
-                        <td className="px-4 py-3 text-[#131720]">{job.Education}</td>
                         <td className="px-4 py-3 text-[#131720]">
-                          {job.Posted}
+                          <FieldValueWithIcon iconKey={job.FieldIcons?.CTC} value={formatCtc(job.CTC, job.CtcFrequency)} />
+                        </td>
+                        <td className="px-4 py-3 text-[#131720]">
+                          <FieldValueWithIcon iconKey={job.FieldIcons?.Education} value={job.Education} />
+                        </td>
+                        <td className="px-4 py-3 text-[#131720]">
+                          <FieldValueWithIcon iconKey={job.FieldIcons?.Posted} value={job.Posted} />
                           {formatRelativeTime(job.Posted) && (
                             <span className="block text-[10px] text-[#94A3B8]">
                               {formatRelativeTime(job.Posted)}
                             </span>
                           )}
                         </td>
+                        <td className="px-4 py-3 text-[#131720]">{job.EndDate || "—"}</td>
                         <td className="px-4 py-3 text-[#131720]">{getRequisitionId(job.Id)}</td>
                         <td className="px-4 py-3">
                           <button
@@ -620,8 +683,8 @@ export function AdminDashboardClient() {
                               type="button"
                               onClick={() => openDescriptionEditor(job)}
                               className="flex items-center justify-center w-8 h-8 rounded-[4px] border border-[#aec2cc] text-[#1e3143] cursor-pointer hover:bg-[#f0f3f5] transition-colors duration-150"
-                              title="Edit description"
-                              aria-label={`Edit description for ${job.Title}`}
+                              title="Edit details"
+                              aria-label={`Edit details for ${job.Title}`}
                             >
                               <FaPen className="text-xs" />
                             </button>
@@ -696,22 +759,30 @@ export function AdminDashboardClient() {
                     </div>
                     <div>
                       <dt className="text-[#94A3B8]">CTC</dt>
-                      <dd className="text-[#131720]">{job.CTC || "—"}</dd>
+                      <dd className="text-[#131720]">
+                        <FieldValueWithIcon iconKey={job.FieldIcons?.CTC} value={formatCtc(job.CTC, job.CtcFrequency)} />
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-[#94A3B8]">Education</dt>
-                      <dd className="text-[#131720]">{job.Education || "—"}</dd>
+                      <dd className="text-[#131720]">
+                        <FieldValueWithIcon iconKey={job.FieldIcons?.Education} value={job.Education} />
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-[#94A3B8]">Posted</dt>
                       <dd className="text-[#131720]">
-                        {job.Posted || "—"}
+                        <FieldValueWithIcon iconKey={job.FieldIcons?.Posted} value={job.Posted || "—"} />
                         {formatRelativeTime(job.Posted) && (
                           <span className="block text-[10px] text-[#94A3B8]">
                             {formatRelativeTime(job.Posted)}
                           </span>
                         )}
                       </dd>
+                    </div>
+                    <div>
+                      <dt className="text-[#94A3B8]">Apply By</dt>
+                      <dd className="text-[#131720]">{job.EndDate || "—"}</dd>
                     </div>
                   </dl>
                   <div className="flex items-center justify-between mt-3 text-xs">
@@ -744,8 +815,8 @@ export function AdminDashboardClient() {
                         type="button"
                         onClick={() => openDescriptionEditor(job)}
                         className="flex items-center justify-center w-8 h-8 rounded-[4px] border border-[#aec2cc] text-[#1e3143] cursor-pointer hover:bg-[#f0f3f5] transition-colors duration-150"
-                        title="Edit description"
-                        aria-label={`Edit description for ${job.Title}`}
+                        title="Edit details"
+                        aria-label={`Edit details for ${job.Title}`}
                       >
                         <FaPen className="text-xs" />
                       </button>
@@ -785,19 +856,46 @@ export function AdminDashboardClient() {
                     >
                       {label}
                     </label>
-                    <input
-                      id={`job-${key}`}
-                      type="text"
-                      placeholder={placeholder}
-                      value={draft[key]}
-                      onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
-                      required
-                      className="w-full p-2 border border-[#aec2cc] rounded-[4px] focus:outline-none focus:ring-1 focus:ring-[#1484bc]"
-                    />
-                    {/* Icon picker — only for Department/Designation/Type
-                        (see FORM_FIELDS above). Purely decorative, saved
-                        alongside the job once it's created — see
-                        handleSubmit and src/lib/jobFieldIcons.ts. */}
+                    {/* CTC pairs its text input with an Annual/Monthly
+                        frequency dropdown — every other field here is a
+                        plain input. flex-wrap so the pair drops to two full-
+                        width rows instead of squeezing/overflowing at phone
+                        widths (this row sits inside a single-column grid
+                        cell on mobile — see the grid's grid-cols-1 above —
+                        so there's no cross-field alignment to preserve). */}
+                    {key === "CTC" ? (
+                      <div className="flex flex-wrap gap-2">
+                        <input
+                          id={`job-${key}`}
+                          type="text"
+                          placeholder={placeholder}
+                          value={draft.CTC}
+                          onChange={(e) => setDraft({ ...draft, CTC: e.target.value })}
+                          required
+                          className="flex-1 min-w-[140px] p-2 border border-[#aec2cc] rounded-[4px] focus:outline-none focus:ring-1 focus:ring-[#1484bc]"
+                        />
+                        <Dropdown
+                          value={draft.CtcFrequency}
+                          onChange={(v) => setDraft((prev) => ({ ...prev, CtcFrequency: v as CtcFrequency }))}
+                          options={CTC_FREQUENCY_OPTIONS}
+                          className="w-full sm:w-32 shrink-0"
+                        />
+                      </div>
+                    ) : (
+                      <input
+                        id={`job-${key}`}
+                        type="text"
+                        placeholder={placeholder}
+                        value={draft[key]}
+                        onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+                        required
+                        className="w-full p-2 border border-[#aec2cc] rounded-[4px] focus:outline-none focus:ring-1 focus:ring-[#1484bc]"
+                      />
+                    )}
+                    {/* Icon picker — every field above except Title (see
+                        FORM_FIELDS). Purely decorative, saved alongside the
+                        job once it's created — see handleSubmit and
+                        src/lib/jobFieldIcons.ts. */}
                     {iconField && (
                       <FieldIconPicker
                         value={draft.FieldIcons[iconField]}
@@ -816,6 +914,49 @@ export function AdminDashboardClient() {
                     )}
                   </div>
                 ))}
+              </div>
+
+              {/* Application end date + the icon for "Posted" — both live
+                  outside the FORM_FIELDS grid: EndDate is a date input with
+                  no matching upstream field (see src/lib/jobExtras.ts), and
+                  Posted has no admin-entered value at all (it's set
+                  server-side to today's date in src/app/api/admin/jobs/route.ts),
+                  so only its icon is choosable here, not a value. */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label
+                    htmlFor="job-end-date"
+                    className="block text-sm font-medium text-[#1e3143] mb-1"
+                  >
+                    Application End Date <span className="text-[#64748B] font-normal">(optional)</span>
+                  </label>
+                  <input
+                    id="job-end-date"
+                    type="date"
+                    value={draft.EndDate}
+                    onChange={(e) => setDraft((prev) => ({ ...prev, EndDate: e.target.value }))}
+                    className="w-full p-2 border border-[#aec2cc] rounded-[4px] focus:outline-none focus:ring-1 focus:ring-[#1484bc]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#1e3143] mb-1">
+                    Icon for &quot;Posted&quot; date <span className="text-[#64748B] font-normal">(optional)</span>
+                  </label>
+                  <FieldIconPicker
+                    value={draft.FieldIcons.Posted}
+                    onChange={(next) =>
+                      setDraft((prev) => {
+                        const nextIcons = { ...prev.FieldIcons };
+                        if (next) {
+                          nextIcons.Posted = next;
+                        } else {
+                          delete nextIcons.Posted;
+                        }
+                        return { ...prev, FieldIcons: nextIcons };
+                      })
+                    }
+                  />
+                </div>
               </div>
 
               <div>
@@ -847,6 +988,7 @@ export function AdminDashboardClient() {
                       onClick={() => {
                         setDraft((prev) => ({ ...prev, ImageUrl: "" }));
                         setPosterFileName("");
+                        setPosterError(null);
                       }}
                       aria-label="Remove chosen image"
                       title="Remove chosen image"
@@ -864,14 +1006,34 @@ export function AdminDashboardClient() {
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (!file) return;
+                    // Hard cap BEFORE reading the file — see MAX_POSTER_BYTES
+                    // above for why an oversized poster is a whole-page
+                    // outage, not just a cosmetic issue. Reset the input so
+                    // choosing the same oversized file again re-fires onChange.
+                    if (file.size > MAX_POSTER_BYTES) {
+                      setPosterError(
+                        `That image is ${(file.size / 1024).toFixed(0)}KB — please use one under ${Math.round(MAX_POSTER_BYTES / 1024)}KB (compress or resize it first).`
+                      );
+                      e.target.value = "";
+                      return;
+                    }
+                    setPosterError(null);
                     setPosterFileName(file.name);
                     const reader = new FileReader();
                     reader.onloadend = () => {
                       setDraft((prev) => ({ ...prev, ImageUrl: reader.result as string }));
                     };
+                    reader.onerror = () => {
+                      setPosterError("Couldn't read that image file. Try a different one.");
+                    };
                     reader.readAsDataURL(file);
                   }}
                 />
+                {posterError && (
+                  <p className="text-xs text-red-600 mt-1.5" role="alert">
+                    {posterError}
+                  </p>
+                )}
                 {draft.ImageUrl && (
                   <Image
                     src={draft.ImageUrl}
@@ -904,16 +1066,46 @@ export function AdminDashboardClient() {
         </div>
       )}
 
-      {/* Edit Description — writes only to our own local description store
-          (see src/lib/jobDescriptions.ts), independent of the upstream API
-          and of the create form. Lets an existing job (like one that lost
-          its description to the upstream API dropping the field) get one
+      {/* Edit Job Details — description, CTC frequency, and end date, all
+          writing only to our own local stores (src/lib/jobDescriptions.ts,
+          src/lib/jobExtras.ts), independent of the upstream API and of the
+          create form. Lets an existing job (like one that lost its
+          description to the upstream API dropping the field) pick these up
           without deleting and recreating it. */}
       {editingDescriptionFor && (
         <div className={MODAL_OVERLAY_CLASS}>
           <div className={`${MODAL_PANEL_CLASS} max-w-2xl`}>
-            <h2 className="text-xl font-bold mb-1 text-center text-[#1e3143]">Edit Description</h2>
+            <h2 className="text-xl font-bold mb-1 text-center text-[#1e3143]">Edit Job Details</h2>
             <p className="text-sm text-[#64748B] text-center mb-5">{editingDescriptionFor.Title}</p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+              <div>
+                <label className="block text-sm font-medium text-[#1e3143] mb-1">CTC Frequency</label>
+                <Dropdown
+                  value={detailsCtcFrequency}
+                  onChange={(v) => setDetailsCtcFrequency(v as CtcFrequency)}
+                  options={CTC_FREQUENCY_OPTIONS}
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="edit-end-date"
+                  className="block text-sm font-medium text-[#1e3143] mb-1"
+                >
+                  Application End Date <span className="text-[#64748B] font-normal">(optional)</span>
+                </label>
+                <input
+                  id="edit-end-date"
+                  type="date"
+                  value={detailsEndDate}
+                  onChange={(e) => setDetailsEndDate(e.target.value)}
+                  className="w-full p-2 border border-[#aec2cc] rounded-[4px] focus:outline-none focus:ring-1 focus:ring-[#1484bc]"
+                />
+              </div>
+            </div>
+
+            <label className="block text-sm font-medium text-[#1e3143] mb-1">Job Description</label>
             <RichTextEditor
               value={descriptionDraft}
               onChange={setDescriptionDraft}
@@ -931,7 +1123,7 @@ export function AdminDashboardClient() {
                 disabled={descriptionSubmitting}
                 className="px-6 py-2 bg-[#1e3143] text-[#fafbf9] rounded-[4px] cursor-pointer hover:bg-[#1f4e7a] active:bg-[#1484bc] transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {descriptionSubmitting ? "Saving..." : "Save Description"}
+                {descriptionSubmitting ? "Saving..." : "Save Changes"}
               </button>
               <button
                 type="button"

@@ -13,8 +13,29 @@ import { ADMIN_SESSION_COOKIE, verifySessionCookieValue } from "@/lib/adminAuth"
 import { setDescription } from "@/lib/jobDescriptions";
 import { notifySubscribersOfNewJob } from "@/lib/jobAlerts";
 import { setFieldIcons, type FieldIconMap } from "@/lib/jobFieldIcons";
+import { setExtras, type CtcFrequency } from "@/lib/jobExtras";
 
 const EXTERNAL_JOBS_URL = "https://api.urest.in:8096/api/jobs";
+
+// See the matching export in src/app/api/jobs/route.ts for why — same
+// upstream, same risk of Vercel's function timeout killing this route
+// before it can return a clean error.
+export const maxDuration = 60;
+
+// ImageUrl is stored as a base64 data URI directly on the job record (no
+// blob storage/CDN in this stack) and EVERY /api/jobs GET re-fetches ALL
+// jobs as one array (see src/app/api/jobs/route.ts). One oversized poster
+// therefore doesn't just bloat one job — it bloats the whole listings
+// payload and can push that proxy route past its upstream timeout, taking
+// the entire Careers page down for every visitor. Confirmed in production:
+// an AI-generated poster with an embedded C2PA provenance block exceeded
+// this and made /api/jobs hang indefinitely. The admin UI already blocks
+// this client-side (see MAX_POSTER_BYTES in AdminDashboardClient.tsx) —
+// this is the same limit enforced server-side so a direct API call can't
+// bypass it. ~1.4M base64 chars ≈ 1MB raw file, comfortably above the
+// client's 700KB cap (with room for base64's ~33% overhead) so a
+// legitimately-sized poster is never rejected here.
+const MAX_IMAGE_URL_LENGTH = 1_400_000;
 
 const REQUIRED_FIELDS = [
   "Title",
@@ -41,11 +62,16 @@ type NewJobBody = {
   // object below), persisted separately via setFieldIcons() once we have
   // the upstream-assigned Id. See src/lib/jobFieldIcons.ts.
   FieldIcons?: FieldIconMap;
+  // Local-only, same story as FieldIcons above — see src/lib/jobExtras.ts.
+  CtcFrequency?: CtcFrequency;
+  EndDate?: string; // ISO yyyy-mm-dd, from <input type="date">
 };
 
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.trim().length > 0;
 }
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function POST(req: NextRequest) {
   try {
@@ -69,6 +95,31 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
+    }
+
+    if (typeof body.ImageUrl === "string" && body.ImageUrl.length > MAX_IMAGE_URL_LENGTH) {
+      return NextResponse.json(
+        {
+          message: `Poster image is too large (${Math.round(
+            body.ImageUrl.length / 1024
+          )}KB encoded). Use a smaller image — an oversized poster degrades the listings API for every visitor.`,
+        },
+        { status: 413 }
+      );
+    }
+
+    if (body.CtcFrequency !== undefined && body.CtcFrequency !== "annual" && body.CtcFrequency !== "monthly") {
+      return NextResponse.json(
+        { message: 'CtcFrequency must be "annual" or "monthly"' },
+        { status: 400 }
+      );
+    }
+
+    if (body.EndDate !== undefined && body.EndDate !== "" && !DATE_PATTERN.test(body.EndDate)) {
+      return NextResponse.json(
+        { message: "EndDate must be a yyyy-mm-dd date" },
+        { status: 400 }
+      );
     }
 
     // The loop above validates every REQUIRED_FIELDS key at runtime, but TS
@@ -136,6 +187,18 @@ export async function POST(req: NextRequest) {
         // Same best-effort treatment as Description above — icons are
         // decoration, never worth failing a successful job posting over.
         console.error("[JOB_FIELD_ICONS_SAVE_ERR]", err);
+      }
+    }
+
+    if (createdId != null && (body.CtcFrequency !== undefined || body.EndDate)) {
+      try {
+        await setExtras(createdId, {
+          CtcFrequency: body.CtcFrequency,
+          EndDate: body.EndDate,
+        });
+      } catch (err) {
+        // Same best-effort treatment as Description/FieldIcons above.
+        console.error("[JOB_EXTRAS_SAVE_ERR]", err);
       }
     }
 

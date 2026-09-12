@@ -8,8 +8,8 @@
 // production, data/job-field-icons.json as a local-dev fallback when Redis
 // isn't configured (see src/lib/kv.ts).
 //
-// Only these three fields are supported (the ones the admin UI exposes a
-// picker for — see FIELD_ICON_KEYS in src/lib/iconRegistry.tsx). A job with
+// Only these six fields are supported (the ones the admin UI exposes a
+// picker for — see ICONABLE_FIELDS in src/lib/iconRegistry.tsx). A job with
 // no stored icons renders with no icons at all, which is a fully valid,
 // intentional state — icons are decoration, not required metadata.
 
@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { isKvConfigured, kvGet, kvSet } from "@/lib/kv";
 
-export type IconableField = "Department" | "Designation" | "Type";
+export type IconableField = "Department" | "Designation" | "Type" | "Education" | "CTC" | "Posted";
 
 // Value is an icon KEY (see src/lib/iconRegistry.tsx's FIELD_ICON_OPTIONS),
 // not a component — this module never imports React/react-icons, so it

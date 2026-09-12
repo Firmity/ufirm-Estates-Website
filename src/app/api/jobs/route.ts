@@ -33,6 +33,7 @@ import { NextResponse } from "next/server";
 import { getAllDescriptions } from "@/lib/jobDescriptions";
 import { getAllStatuses } from "@/lib/jobStatus";
 import { getAllClickCounts } from "@/lib/jobClicks";
+import { getAllFieldIcons } from "@/lib/jobFieldIcons";
 
 const EXTERNAL_JOBS_URL = "https://api.urest.in:8096/api/jobs";
 const CACHE_TTL_MS = 60 * 1000; // 60s — job listings don't change often enough to need less.
@@ -83,10 +84,11 @@ async function fetchUpstreamWithRetry(): Promise<unknown> {
 // never had a concept of at all.
 async function withLocalData(data: unknown): Promise<unknown> {
   if (!Array.isArray(data)) return data;
-  const [descriptions, statuses, clicks] = await Promise.all([
+  const [descriptions, statuses, clicks, fieldIcons] = await Promise.all([
     getAllDescriptions(),
     getAllStatuses(),
     getAllClickCounts(),
+    getAllFieldIcons(),
   ]);
   return data.map((job) => {
     if (!job || typeof job !== "object" || (job as { Id?: unknown }).Id == null) return job;
@@ -96,6 +98,7 @@ async function withLocalData(data: unknown): Promise<unknown> {
       ...(id in descriptions ? { Description: descriptions[id] } : {}),
       Status: statuses[id] ?? "open",
       LinkClicks: clicks[id] ?? 0,
+      ...(id in fieldIcons ? { FieldIcons: fieldIcons[id] } : {}),
     };
   });
 }

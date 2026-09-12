@@ -12,6 +12,7 @@ import { cookies } from "next/headers";
 import { ADMIN_SESSION_COOKIE, verifySessionCookieValue } from "@/lib/adminAuth";
 import { setDescription } from "@/lib/jobDescriptions";
 import { notifySubscribersOfNewJob } from "@/lib/jobAlerts";
+import { setFieldIcons, type FieldIconMap } from "@/lib/jobFieldIcons";
 
 const EXTERNAL_JOBS_URL = "https://api.urest.in:8096/api/jobs";
 
@@ -36,6 +37,10 @@ type NewJobBody = {
   // external API may silently drop unknown fields; if it does, this is a
   // no-op rather than a breakage.
   Description?: string;
+  // Local-only, like Description — never sent upstream (see the payload
+  // object below), persisted separately via setFieldIcons() once we have
+  // the upstream-assigned Id. See src/lib/jobFieldIcons.ts.
+  FieldIcons?: FieldIconMap;
 };
 
 function isNonEmptyString(v: unknown): v is string {
@@ -121,6 +126,16 @@ export async function POST(req: NextRequest) {
       } catch (err) {
         // Don't fail job creation over the description store — log and move on.
         console.error("[JOB_DESCRIPTION_SAVE_ERR]", err);
+      }
+    }
+
+    if (createdId != null && body.FieldIcons && Object.keys(body.FieldIcons).length > 0) {
+      try {
+        await setFieldIcons(createdId, body.FieldIcons);
+      } catch (err) {
+        // Same best-effort treatment as Description above — icons are
+        // decoration, never worth failing a successful job posting over.
+        console.error("[JOB_FIELD_ICONS_SAVE_ERR]", err);
       }
     }
 

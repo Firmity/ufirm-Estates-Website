@@ -16,21 +16,45 @@ import {
   FaSearch,
   FaTimes,
   FaBell,
+  FaCheck,
 } from "react-icons/fa";
 import { getAllJobs, JobInfo } from "@/app/api/job";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { ShareMenu } from "@/components/ui/ShareMenu";
 import { NavButton } from "@/components/ui/NavButton";
 import { getRequisitionId } from "@/lib/requisitionId";
+import { getFieldIcon } from "@/lib/iconRegistry";
+import { formatRelativeTime } from "@/lib/relativeTime";
 
 type SortOption = "latest" | "oldest" | "open" | "closed";
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "latest", label: "Latest first" },
   { value: "oldest", label: "Oldest first" },
-  { value: "open", label: "Open positions" },
+  { value: "open", label: "Hiring positions" },
   { value: "closed", label: "Closed positions" },
 ];
+
+// Hiring/Closed status pill — shown next to the Requisition ID on both the
+// job card and the View Details modal, so a visitor sees it in the same
+// place either way. Hiring reuses the same light-green/dark-green pairing
+// as the admin dashboard's "open" toggle (src/app/CareersPage/admin/AdminDashboardClient.tsx)
+// so the color means the same thing everywhere on the site; Closed moves
+// from red to light-blue/dark-blue per the new spec — red reads as an
+// error/warning, which "this role isn't taking applicants" isn't.
+function JobStatusBadge({ status }: { status: JobInfo["Status"] }) {
+  const isClosed = status === "closed";
+  return (
+    <span
+      className={clsx(
+        "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold shrink-0",
+        isClosed ? "bg-[#DBEAFE] text-[#1E40AF]" : "bg-[#DCFCE7] text-[#15803D]"
+      )}
+    >
+      {isClosed ? "Closed" : "Hiring"}
+    </span>
+  );
+}
 
 // Fade/slide-up used everywhere on this page — one small, consistent motion,
 // not a different flourish per section.
@@ -55,21 +79,39 @@ const JOB_DESCRIPTION_CLASS =
 
 // Labeled key/value fields shown on every card and in the details modal —
 // SAP/LinkedIn-style ("Work Area: Presales", not a bare icon next to text)
-// so a visitor knows exactly what each value means without guessing. No
-// icons here on purpose — a decorative icon next to a label adds noise,
-// not information; the label text itself (now bold and sized ABOVE its
-// value, not below it) is what carries the meaning.
-type JobField = { label: string; value: string };
+// so a visitor knows exactly what each value means without guessing. The
+// label text itself (bold, sized ABOVE its value, not below it) is what
+// carries the meaning — an icon, when an admin has chosen one, is purely
+// supplementary (see FieldLabel below), never a replacement for the label.
+//
+// iconKey (optional) — set by an admin per-job in the Post Job form (see
+// AdminDashboardClient.tsx + src/lib/jobFieldIcons.ts) for Department/Role/
+// Employment Type only. Most jobs will have none set; that's a fully valid
+// state, not a missing-data bug.
+type JobField = { label: string; value: string; iconKey?: string };
 
 function getJobFields(job: JobInfo): JobField[] {
   return [
-    job.Department && { label: "Department", value: job.Department },
-    job.Designation && { label: "Role", value: job.Designation },
-    job.Type && { label: "Employment Type", value: job.Type },
+    job.Department && { label: "Department", value: job.Department, iconKey: job.FieldIcons?.Department },
+    job.Designation && { label: "Role", value: job.Designation, iconKey: job.FieldIcons?.Designation },
+    job.Type && { label: "Employment Type", value: job.Type, iconKey: job.FieldIcons?.Type },
     job.Education && { label: "Education", value: job.Education },
     job.CTC && { label: "CTC", value: job.CTC },
     job.Posted && { label: "Posted", value: job.Posted },
   ].filter(Boolean) as JobField[];
+}
+
+// Renders a field's <dt> label, with its admin-chosen icon in front when one
+// is set. Pulled out so the card and the View Details modal (both map over
+// getJobFields()) can't render this differently from each other.
+function FieldLabel({ field }: { field: JobField }) {
+  const Icon = getFieldIcon(field.iconKey);
+  return (
+    <dt className={clsx(FIELD_LABEL_CLASS, "flex items-center gap-1.5")}>
+      {Icon && <Icon className="text-[#1484bc] text-sm shrink-0" aria-hidden="true" />}
+      {field.label}
+    </dt>
+  );
 }
 
 // Shared label/value classes for the field grid — used on both the card
@@ -127,12 +169,20 @@ export function CareersPageClient() {
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [jobsLoading, setJobsLoading] = useState(true);
 
-  // "Get job alerts" — one-line email signup; notified the moment a new
-  // job is posted (src/lib/jobAlerts.ts + src/app/api/job-alerts/*).
+  // "Get job alerts" — email signup; notified the moment a new job is
+  // posted (src/lib/jobAlerts.ts + src/app/api/job-alerts/*). Lives in a
+  // small modal now (triggered by a compact button next to "Submit resume
+  // without applying"), not an inline full-width form — see showAlertModal.
+  const [showAlertModal, setShowAlertModal] = useState(false);
   const [alertEmail, setAlertEmail] = useState("");
   const [alertHoneypot, setAlertHoneypot] = useState("");
   const [alertStatus, setAlertStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [alertMessage, setAlertMessage] = useState("");
+
+  // Resume-submit confirmation — shown IN PLACE of the form inside the same
+  // modal on success, instead of a browser alert() + immediate close (the
+  // old behavior gave no real acknowledgment of the application).
+  const [resumeSubmitStatus, setResumeSubmitStatus] = useState<"idle" | "submitting" | "success">("idle");
 
   // Deep-linking: /CareersPage?job=<id> scrolls to and briefly highlights
   // that one job, so a link shared on LinkedIn/etc. lands the visitor
@@ -277,9 +327,23 @@ export function CareersPageClient() {
     }
   };
 
+  // Resets every piece of resume-form state, including the post-submit
+  // thank-you view — shared by the modal's Close/Cancel/backdrop paths so
+  // none of them can leave stale data behind for the next time it opens.
+  const closeResumeForm = () => {
+    setShowResumeForm(false);
+    setAppliedJobInfo(null);
+    setResumeName("");
+    setResumeEmail("");
+    setResumeMobile("");
+    setResumeFile(null);
+    setResumeHoneypot("");
+    setResumeSubmitStatus("idle");
+  };
+
   const handleResumeSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!resumeFile) return;
+    if (!resumeFile || resumeSubmitStatus === "submitting") return;
 
     const fileType = resumeFile.type;
     const fileSize = resumeFile.size;
@@ -318,25 +382,24 @@ export function CareersPageClient() {
       formData.append("jobDetails", jobDetails);
     }
 
+    setResumeSubmitStatus("submitting");
     try {
       const res = await fetch("/api/upload-resume", {
         method: "POST",
         body: formData,
       });
       if (res.ok) {
-        alert("Resume submitted successfully!");
-        setShowResumeForm(false);
-        setResumeName("");
-        setResumeEmail("");
-        setResumeMobile("");
-        setResumeFile(null);
-        setResumeHoneypot("");
-        setAppliedJobInfo(null);
+        // Thank-you view replaces the form INSIDE the same modal — see the
+        // resumeSubmitStatus === "success" branch below — rather than a
+        // browser alert() that gave no lasting confirmation.
+        setResumeSubmitStatus("success");
       } else {
+        setResumeSubmitStatus("idle");
         alert("Failed to submit resume.");
       }
     } catch (error) {
       console.error("[RESUME_SUBMIT_UI_ERR]", error);
+      setResumeSubmitStatus("idle");
       alert("An error occurred.");
     }
   };
@@ -457,61 +520,33 @@ export function CareersPageClient() {
                     `${filteredJobs.length} open position${filteredJobs.length === 1 ? "" : "s"}`
                   )}
                 </h2>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAppliedJobInfo(null);
-                    setShowResumeForm(true);
-                  }}
-                  className="px-6 py-2 bg-white text-[#1e3143] border-[0.5px] border-[#1e3143] rounded-[4px] text-sm font-medium cursor-pointer hover:bg-neutral-100 transition-colors duration-200"
-                >
-                  Submit resume without applying
-                </button>
+                {/* Submit resume without applying + Get job alerts sit
+                    together in one group on the right, same height, same
+                    row — wrapping together onto their own line on narrow
+                    screens rather than each wrapping independently. */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAppliedJobInfo(null);
+                      setShowResumeForm(true);
+                    }}
+                    className="px-6 py-2 bg-white text-[#1e3143] border-[0.5px] border-[#1e3143] rounded-[4px] text-sm font-medium cursor-pointer hover:bg-neutral-100 transition-colors duration-200"
+                  >
+                    Submit resume without applying
+                  </button>
+                  {/* Get job alerts — compact navy trigger, same height as
+                      the button above (identical px-6 py-2 sizing), opens a
+                      small modal instead of an inline full-width form. */}
+                  <button
+                    type="button"
+                    onClick={() => setShowAlertModal(true)}
+                    className="flex items-center gap-2 px-6 py-2 bg-[#1e3143] text-[#fafbf9] rounded-[4px] text-sm font-medium cursor-pointer hover:bg-[#1f4e7a] active:bg-[#1484bc] transition-colors duration-200"
+                  >
+                    <FaBell className="text-xs" /> Get job alerts
+                  </button>
+                </div>
               </div>
-
-              {/* Get job alerts — real-time notification the moment a new
-                  role is posted (see src/lib/jobAlerts.ts), not a digest. */}
-              <form
-                onSubmit={handleAlertSubscribe}
-                className="flex flex-wrap items-center gap-2 mb-6 p-3 rounded-[8px] border border-[#dbe3e7] bg-white"
-              >
-                <FaBell className="text-[#1484bc] shrink-0" />
-                <p className="text-sm text-[#475569] mr-1">
-                  Get job alerts — email me when a new role is posted
-                </p>
-                <input
-                  type="email"
-                  required
-                  placeholder="you@email.com"
-                  value={alertEmail}
-                  onChange={(e) => {
-                    setAlertEmail(e.target.value);
-                    if (alertStatus !== "idle") setAlertStatus("idle");
-                  }}
-                  className="flex-1 min-w-[180px] px-3 py-1.5 rounded-[4px] border border-[#aec2cc] text-[#131720] text-sm focus:outline-none focus:ring-1 focus:ring-[#1484bc]"
-                />
-                {/* Honeypot: visually hidden, kept out of the tab order —
-                    same pattern as the resume form's honeypot below. */}
-                <input
-                  type="text"
-                  name="website"
-                  value={alertHoneypot}
-                  onChange={(e) => setAlertHoneypot(e.target.value)}
-                  tabIndex={-1}
-                  autoComplete="off"
-                  aria-hidden="true"
-                  className="absolute -left-[9999px] w-px h-px overflow-hidden"
-                />
-                <NavButton type="submit" variant="secondary" disabled={alertStatus === "submitting"}>
-                  {alertStatus === "submitting" ? "Subscribing…" : "Notify me"}
-                </NavButton>
-                {alertStatus === "success" && (
-                  <p className="w-full text-sm text-[#146995]">{alertMessage}</p>
-                )}
-                {alertStatus === "error" && (
-                  <p className="w-full text-sm text-red-600">{alertMessage}</p>
-                )}
-              </form>
 
               {jobsError && (
                 <div className="flex flex-wrap items-center gap-3 mb-4 px-4 py-3 rounded-[4px] bg-red-50 border border-red-200">
@@ -570,15 +605,23 @@ export function CareersPageClient() {
                             {job.Company && (
                               <span className="text-sm text-[#64748B]">{job.Company}</span>
                             )}
-                            {job.Status === "closed" && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-[#FEE2E2] text-[#B91C1C]">
-                                Closed
+                          </div>
+                          {/* Requisition ID, status, and "posted X ago" all
+                              on one line — status sits immediately to the
+                              RIGHT of the requisition ID by design (not up
+                              by the title), and wraps as a group on narrow
+                              screens rather than each piece wrapping alone. */}
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
+                            <p className="text-xs text-[#64748B]">
+                              Requisition ID {getRequisitionId(job.Id)}
+                            </p>
+                            <JobStatusBadge status={job.Status} />
+                            {formatRelativeTime(job.Posted) && (
+                              <span className="text-xs text-[#94A3B8]">
+                                · Posted {formatRelativeTime(job.Posted)}
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-[#64748B] mt-0.5">
-                            Requisition ID {getRequisitionId(job.Id)}
-                          </p>
 
                           {/* Labeled fields, SAP/LinkedIn-style — every value
                               carries its own label so a visitor never has to
@@ -588,7 +631,7 @@ export function CareersPageClient() {
                             <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 mt-3 pt-3 border-t border-[#f0f3f5]">
                               {fields.map((field) => (
                                 <div key={field.label} className="min-w-0">
-                                  <dt className={FIELD_LABEL_CLASS}>{field.label}</dt>
+                                  <FieldLabel field={field} />
                                   <dd className={clsx(FIELD_VALUE_CLASS, "truncate")} title={field.value}>
                                     {field.value}
                                   </dd>
@@ -721,18 +764,24 @@ export function CareersPageClient() {
                 <div>
                   <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                     <h3 className="text-xl font-bold text-[#1e3143]">{viewDetailsJob.Title}</h3>
-                    {viewDetailsJob.Status === "closed" && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-[#FEE2E2] text-[#B91C1C]">
-                        Closed
-                      </span>
-                    )}
                   </div>
                   {viewDetailsJob.Company && (
                     <p className="text-sm text-[#64748B] mt-0.5">{viewDetailsJob.Company}</p>
                   )}
-                  <p className="text-xs text-[#64748B] mt-0.5">
-                    Requisition ID {getRequisitionId(viewDetailsJob.Id)}
-                  </p>
+                  {/* Same "Requisition ID, then status immediately to its
+                      right, then posted-X-ago" line as the card — see the
+                      matching block in the job list above. */}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
+                    <p className="text-xs text-[#64748B]">
+                      Requisition ID {getRequisitionId(viewDetailsJob.Id)}
+                    </p>
+                    <JobStatusBadge status={viewDetailsJob.Status} />
+                    {formatRelativeTime(viewDetailsJob.Posted) && (
+                      <span className="text-xs text-[#94A3B8]">
+                        · Posted {formatRelativeTime(viewDetailsJob.Posted)}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -747,7 +796,7 @@ export function CareersPageClient() {
               <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-4 mt-5 pt-5 border-t border-[#f0f3f5]">
                 {getJobFields(viewDetailsJob).map((field) => (
                   <div key={field.label} className="min-w-0">
-                    <dt className={FIELD_LABEL_CLASS}>{field.label}</dt>
+                    <FieldLabel field={field} />
                     <dd className={FIELD_VALUE_CLASS}>{field.value}</dd>
                   </div>
                 ))}
@@ -809,6 +858,31 @@ export function CareersPageClient() {
               transition={{ duration: 0.25 }}
               className="bg-white p-6 sm:p-8 rounded-[8px] shadow-lg w-full max-w-sm sm:max-w-md overflow-auto max-h-[90vh]"
             >
+              {resumeSubmitStatus === "success" ? (
+                // Thank-you confirmation — replaces the form in place
+                // instead of a browser alert() + immediate close, so the
+                // applicant actually sees an acknowledgment of what they
+                // just did before the modal goes away.
+                <div className="text-center py-4">
+                  <div className="mx-auto w-12 h-12 rounded-full bg-[#DCFCE7] flex items-center justify-center mb-4">
+                    <FaCheck className="text-[#15803D] text-xl" aria-hidden="true" />
+                  </div>
+                  <h3 className="text-xl font-bold text-[#1e3143] mb-2">Thank you!</h3>
+                  <p className="text-sm text-[#475569]">
+                    {appliedJobInfo
+                      ? `Your application for ${appliedJobInfo.Title} has been received. We'll be in touch if there's a match.`
+                      : "Your resume has been received. We'll reach out if a role matches your profile."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={closeResumeForm}
+                    className="mt-6 px-6 py-2 bg-[#1e3143] text-[#fafbf9] rounded-[4px] cursor-pointer hover:bg-[#1f4e7a] active:bg-[#1484bc] transition-colors duration-200"
+                  >
+                    Close
+                  </button>
+                </div>
+              ) : (
+              <>
               <h3 className="text-xl font-bold mb-6 text-center text-[#1e3143]">
                 {appliedJobInfo ? `Apply for ${appliedJobInfo.Title}` : "Submit Your Resume"}
               </h3>
@@ -908,27 +982,131 @@ export function CareersPageClient() {
                 <div className="flex justify-between pt-2">
                   <button
                     type="submit"
-                    className="px-6 py-2 bg-[#1e3143] text-[#fafbf9] rounded-[4px] cursor-pointer hover:bg-[#1f4e7a] active:bg-[#1484bc] transition-colors duration-200"
+                    disabled={resumeSubmitStatus === "submitting"}
+                    className="px-6 py-2 bg-[#1e3143] text-[#fafbf9] rounded-[4px] cursor-pointer hover:bg-[#1f4e7a] active:bg-[#1484bc] transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Send
+                    {resumeSubmitStatus === "submitting" ? "Sending…" : "Send"}
                   </button>
                   <button
                     type="button"
                     className="px-6 py-2 bg-white text-[#1e3143] border-[0.5px] border-[#1e3143] rounded-[4px] cursor-pointer hover:bg-neutral-100 transition-colors duration-200"
-                    onClick={() => {
-                      setShowResumeForm(false);
-                      setAppliedJobInfo(null);
-                      setResumeName("");
-                      setResumeEmail("");
-                      setResumeMobile("");
-                      setResumeFile(null);
-                      setResumeHoneypot("");
-                    }}
+                    onClick={closeResumeForm}
                   >
                     Cancel
                   </button>
                 </div>
               </form>
+              </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Get job alerts — compact modal opened from the button next to
+          "Submit resume without applying" (see the positions header
+          above). Same shell pattern as the Resume Form / View Details
+          modals so it doesn't introduce a new visual language. */}
+      <AnimatePresence>
+        {showAlertModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4"
+            onClick={() => setShowAlertModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.25 }}
+              className="bg-white p-6 sm:p-8 rounded-[8px] shadow-lg w-full max-w-sm overflow-auto max-h-[90vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {alertStatus === "success" ? (
+                <div className="text-center py-4">
+                  <div className="mx-auto w-12 h-12 rounded-full bg-[#DCFCE7] flex items-center justify-center mb-4">
+                    <FaCheck className="text-[#15803D] text-xl" aria-hidden="true" />
+                  </div>
+                  <h3 className="text-xl font-bold text-[#1e3143] mb-2">You&apos;re subscribed</h3>
+                  <p className="text-sm text-[#475569]">{alertMessage}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAlertModal(false);
+                      setAlertStatus("idle");
+                      setAlertMessage("");
+                    }}
+                    className="mt-6 px-6 py-2 bg-[#1e3143] text-[#fafbf9] rounded-[4px] cursor-pointer hover:bg-[#1f4e7a] active:bg-[#1484bc] transition-colors duration-200"
+                  >
+                    Close
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 justify-center mb-2">
+                    <FaBell className="text-[#1484bc]" aria-hidden="true" />
+                    <h3 className="text-xl font-bold text-[#1e3143]">Get job alerts</h3>
+                  </div>
+                  <p className="text-sm text-[#475569] text-center mb-6">
+                    We&apos;ll email you the moment a new role is posted.
+                  </p>
+                  <form onSubmit={handleAlertSubscribe} className="space-y-4">
+                    <div>
+                      <label htmlFor="alertEmail" className="block text-sm font-medium text-[#1e3143] mb-1">
+                        Your Email
+                      </label>
+                      <input
+                        id="alertEmail"
+                        type="email"
+                        required
+                        placeholder="you@email.com"
+                        value={alertEmail}
+                        onChange={(e) => {
+                          setAlertEmail(e.target.value);
+                          if (alertStatus !== "idle") setAlertStatus("idle");
+                        }}
+                        className="w-full px-3 py-2 border border-[#aec2cc] rounded-[4px] text-[#131720] text-sm focus:outline-none focus:ring-1 focus:ring-[#1484bc]"
+                      />
+                    </div>
+                    {/* Honeypot: visually hidden, kept out of the tab order —
+                        same pattern as the resume form's honeypot. */}
+                    <input
+                      type="text"
+                      name="website"
+                      value={alertHoneypot}
+                      onChange={(e) => setAlertHoneypot(e.target.value)}
+                      tabIndex={-1}
+                      autoComplete="off"
+                      aria-hidden="true"
+                      className="absolute -left-[9999px] w-px h-px overflow-hidden"
+                    />
+                    {alertStatus === "error" && (
+                      <p className="text-sm text-red-600" role="alert">
+                        {alertMessage}
+                      </p>
+                    )}
+                    <div className="flex justify-between pt-2">
+                      <button
+                        type="submit"
+                        disabled={alertStatus === "submitting"}
+                        className="px-6 py-2 bg-[#1e3143] text-[#fafbf9] rounded-[4px] cursor-pointer hover:bg-[#1f4e7a] active:bg-[#1484bc] transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {alertStatus === "submitting" ? "Subscribing…" : "Notify me"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowAlertModal(false)}
+                        className="px-6 py-2 bg-white text-[#1e3143] border-[0.5px] border-[#1e3143] rounded-[4px] cursor-pointer hover:bg-neutral-100 transition-colors duration-200"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </>
+              )}
             </motion.div>
           </motion.div>
         )}

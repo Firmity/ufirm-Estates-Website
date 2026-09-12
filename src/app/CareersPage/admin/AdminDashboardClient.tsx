@@ -19,6 +19,11 @@ import {
 } from "react-icons/fa";
 import { getAllJobs, JobInfo } from "@/app/api/job";
 import { RichTextEditor } from "@/components/ui/RichTextEditor";
+import { Dropdown } from "@/components/ui/Dropdown";
+import { getRequisitionId } from "@/lib/requisitionId";
+import { formatRelativeTime } from "@/lib/relativeTime";
+import { FIELD_ICON_OPTIONS, getFieldIcon } from "@/lib/iconRegistry";
+import type { FieldIconMap, IconableField } from "@/lib/jobFieldIcons";
 
 type JobDraft = {
   Title: string;
@@ -29,6 +34,9 @@ type JobDraft = {
   Designation: string;
   Description: string;
   ImageUrl: string;
+  // Icon picked per field (Department/Designation/Type only) — see
+  // src/lib/jobFieldIcons.ts + src/lib/iconRegistry.tsx.
+  FieldIcons: FieldIconMap;
 };
 
 const EMPTY_DRAFT: JobDraft = {
@@ -40,15 +48,97 @@ const EMPTY_DRAFT: JobDraft = {
   Designation: "",
   Description: "",
   ImageUrl: "",
+  FieldIcons: {},
 };
 
-const FORM_FIELDS: { key: keyof Omit<JobDraft, "ImageUrl" | "Description">; label: string; placeholder: string }[] = [
+// iconField (optional) — only Department/Designation/Type get the icon
+// picker (see ICONABLE_FIELD_KEYS below); Title/Education/CTC don't, same
+// set the public page's getJobFields() treats as iconable.
+const FORM_FIELDS: {
+  key: keyof Omit<JobDraft, "ImageUrl" | "Description" | "FieldIcons">;
+  label: string;
+  placeholder: string;
+  iconField?: IconableField;
+}[] = [
   { key: "Title", label: "Job Title", placeholder: "e.g. Facility Executive" },
-  { key: "Type", label: "Job Type", placeholder: "e.g. Full-time" },
+  { key: "Type", label: "Job Type", placeholder: "e.g. Full-time", iconField: "Type" },
   { key: "Education", label: "Education", placeholder: "e.g. Graduate" },
   { key: "CTC", label: "CTC", placeholder: "e.g. 3.5 - 4.5 LPA" },
-  { key: "Department", label: "Department", placeholder: "e.g. Facility Management" },
-  { key: "Designation", label: "Designation", placeholder: "e.g. Technician" },
+  { key: "Department", label: "Department", placeholder: "e.g. Facility Management", iconField: "Department" },
+  { key: "Designation", label: "Designation", placeholder: "e.g. Technician", iconField: "Designation" },
+];
+
+// Renders a Department/Designation/Type value with its chosen icon (if
+// any) in front — used in both the desktop table and mobile cards below,
+// so the two can't render a job's icon differently from each other.
+function FieldValueWithIcon({ iconKey, value }: { iconKey: string | undefined; value: string }) {
+  const Icon = getFieldIcon(iconKey);
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {Icon && <Icon className="text-[#1484bc] text-xs shrink-0" aria-hidden="true" />}
+      {value || "—"}
+    </span>
+  );
+}
+
+// Compact icon picker — a row of small toggle buttons (the whole curated
+// FIELD_ICON_OPTIONS palette, see src/lib/iconRegistry.tsx) plus a "None"
+// option, rather than a dropdown/popover. Simpler to build correctly
+// (no click-outside-to-close state to manage) and every option is visible
+// at a glance, which matters more here than compactness — there are only
+// 14 icons.
+function FieldIconPicker({
+  value,
+  onChange,
+}: {
+  value: string | undefined;
+  onChange: (next: string | undefined) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2" role="group" aria-label="Choose an icon">
+      <button
+        type="button"
+        onClick={() => onChange(undefined)}
+        title="No icon"
+        aria-pressed={!value}
+        className={clsx(
+          "px-2 py-1 rounded-[4px] border text-xs cursor-pointer transition-colors duration-150",
+          !value
+            ? "border-[#1484bc] bg-[#e8f4fa] text-[#1484bc]"
+            : "border-[#aec2cc] text-[#64748B] hover:bg-[#f0f3f5]"
+        )}
+      >
+        None
+      </button>
+      {FIELD_ICON_OPTIONS.map(({ key, label, Icon }) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => onChange(key)}
+          title={label}
+          aria-label={label}
+          aria-pressed={value === key}
+          className={clsx(
+            "flex items-center justify-center w-8 h-8 rounded-[4px] border cursor-pointer transition-colors duration-150",
+            value === key
+              ? "border-[#1484bc] bg-[#e8f4fa] text-[#1484bc]"
+              : "border-[#aec2cc] text-[#64748B] hover:bg-[#f0f3f5]"
+          )}
+        >
+          <Icon className="text-sm" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Hiring/Closed filter options — same "all"/"open"/"closed" value shape as
+// the public page's sort Dropdown (CareersPageClient.tsx's SORT_OPTIONS),
+// so the two stay conceptually aligned even though they're separate lists.
+const STATUS_FILTER_OPTIONS = [
+  { value: "all", label: "All statuses" },
+  { value: "open", label: "Hiring" },
+  { value: "closed", label: "Closed" },
 ];
 
 const EMPTY_CREDENTIALS_FORM = {
@@ -74,6 +164,10 @@ export function AdminDashboardClient() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  // Hiring/Closed filter — the admin dashboard had no status filter at all
+  // before this (only title search); mirrors the same "all"/"open"/"closed"
+  // shape as the public page's sort Dropdown (CareersPageClient.tsx).
+  const [statusFilter, setStatusFilter] = useState<"all" | "open" | "closed">("all");
 
   const [showForm, setShowForm] = useState(false);
   const [draft, setDraft] = useState<JobDraft>(EMPTY_DRAFT);
@@ -130,9 +224,12 @@ export function AdminDashboardClient() {
       .catch((err) => console.error("[ADMIN_JOB_ALERTS_COUNT_ERR]", err));
   }, []);
 
-  const filteredJobs = jobs.filter((job) =>
-    job.Title?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredJobs = jobs.filter((job) => {
+    const matchesSearch = job.Title?.toLowerCase().includes(search.toLowerCase());
+    const matchesStatus =
+      statusFilter === "all" || (job.Status ?? "open") === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   const openCreateForm = () => {
     setDraft(EMPTY_DRAFT);
@@ -385,13 +482,21 @@ export function AdminDashboardClient() {
       {/* Body — same full-width padding pattern as the header/navbar. */}
       <div className="w-full px-6 sm:px-12 md:px-16 lg:px-24 py-8">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <input
-            type="text"
-            placeholder="Search jobs by title..."
-            className="w-full sm:w-80 px-4 py-2 rounded-[4px] border border-[#aec2cc] bg-white text-[#131720] focus:outline-none focus:ring-1 focus:ring-[#1484bc]"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+            <input
+              type="text"
+              placeholder="Search jobs by title..."
+              className="w-full sm:w-80 px-4 py-2 rounded-[4px] border border-[#aec2cc] bg-white text-[#131720] focus:outline-none focus:ring-1 focus:ring-[#1484bc]"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <Dropdown
+              value={statusFilter}
+              onChange={(v) => setStatusFilter(v as "all" | "open" | "closed")}
+              options={STATUS_FILTER_OPTIONS}
+              className="w-full sm:w-44"
+            />
+          </div>
           <button
             type="button"
             onClick={openCreateForm}
@@ -437,6 +542,11 @@ export function AdminDashboardClient() {
                       <th className="px-4 py-3">CTC</th>
                       <th className="px-4 py-3">Education</th>
                       <th className="px-4 py-3">Posted</th>
+                      {/* Req ID sits immediately before Status so the two
+                          columns land next to each other — same "status to
+                          the right of requisition ID" placement as the
+                          public page. */}
+                      <th className="px-4 py-3">Req ID</th>
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Clicks</th>
                       <th className="px-4 py-3">Description</th>
@@ -460,26 +570,40 @@ export function AdminDashboardClient() {
                           )}
                         </td>
                         <td className="px-4 py-3 font-medium text-[#1e3143]">{job.Title}</td>
-                        <td className="px-4 py-3 text-[#131720]">{job.Department}</td>
-                        <td className="px-4 py-3 text-[#131720]">{job.Designation}</td>
-                        <td className="px-4 py-3 text-[#131720]">{job.Type}</td>
+                        <td className="px-4 py-3 text-[#131720]">
+                          <FieldValueWithIcon iconKey={job.FieldIcons?.Department} value={job.Department} />
+                        </td>
+                        <td className="px-4 py-3 text-[#131720]">
+                          <FieldValueWithIcon iconKey={job.FieldIcons?.Designation} value={job.Designation} />
+                        </td>
+                        <td className="px-4 py-3 text-[#131720]">
+                          <FieldValueWithIcon iconKey={job.FieldIcons?.Type} value={job.Type} />
+                        </td>
                         <td className="px-4 py-3 text-[#131720]">{job.CTC}</td>
                         <td className="px-4 py-3 text-[#131720]">{job.Education}</td>
-                        <td className="px-4 py-3 text-[#131720]">{job.Posted}</td>
+                        <td className="px-4 py-3 text-[#131720]">
+                          {job.Posted}
+                          {formatRelativeTime(job.Posted) && (
+                            <span className="block text-[10px] text-[#94A3B8]">
+                              {formatRelativeTime(job.Posted)}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-[#131720]">{getRequisitionId(job.Id)}</td>
                         <td className="px-4 py-3">
                           <button
                             type="button"
                             onClick={() => handleStatusToggle(job)}
                             disabled={statusUpdating === job.Id}
-                            title="Click to toggle open/closed"
+                            title="Click to toggle hiring/closed"
                             className={clsx(
                               "px-2 py-1 rounded-full text-xs font-semibold cursor-pointer transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed",
                               job.Status === "closed"
-                                ? "bg-[#FEE2E2] text-[#B91C1C] hover:bg-red-200"
+                                ? "bg-[#DBEAFE] text-[#1E40AF] hover:bg-blue-200"
                                 : "bg-[#DCFCE7] text-[#15803D] hover:bg-green-200"
                             )}
                           >
-                            {statusUpdating === job.Id ? "…" : job.Status === "closed" ? "Closed" : "Open"}
+                            {statusUpdating === job.Id ? "…" : job.Status === "closed" ? "Closed" : "Hiring"}
                           </button>
                         </td>
                         <td className="px-4 py-3 text-[#131720]">{job.LinkClicks ?? 0}</td>
@@ -540,15 +664,35 @@ export function AdminDashboardClient() {
                     )}
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-[#1e3143] truncate">{job.Title}</p>
-                      <p className="text-xs text-[#64748B] truncate">
-                        {job.Department} · {job.Designation}
+                      <p className="text-xs text-[#64748B] truncate flex items-center gap-1">
+                        <FieldValueWithIcon iconKey={job.FieldIcons?.Department} value={job.Department} />
+                        <span>·</span>
+                        <FieldValueWithIcon iconKey={job.FieldIcons?.Designation} value={job.Designation} />
+                      </p>
+                      {/* Req ID with status immediately to its right — same
+                          placement as the desktop table and the public
+                          page's card/modal. */}
+                      <p className="text-[10px] text-[#94A3B8] mt-0.5 flex items-center gap-1.5">
+                        Req ID {getRequisitionId(job.Id)}
+                        <span
+                          className={clsx(
+                            "inline-flex items-center px-1.5 py-0.5 rounded-full font-semibold",
+                            job.Status === "closed"
+                              ? "bg-[#DBEAFE] text-[#1E40AF]"
+                              : "bg-[#DCFCE7] text-[#15803D]"
+                          )}
+                        >
+                          {job.Status === "closed" ? "Closed" : "Hiring"}
+                        </span>
                       </p>
                     </div>
                   </div>
                   <dl className="grid grid-cols-2 gap-x-3 gap-y-1 mt-3 text-xs">
                     <div>
                       <dt className="text-[#94A3B8]">Type</dt>
-                      <dd className="text-[#131720]">{job.Type || "—"}</dd>
+                      <dd className="text-[#131720]">
+                        <FieldValueWithIcon iconKey={job.FieldIcons?.Type} value={job.Type} />
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-[#94A3B8]">CTC</dt>
@@ -560,7 +704,14 @@ export function AdminDashboardClient() {
                     </div>
                     <div>
                       <dt className="text-[#94A3B8]">Posted</dt>
-                      <dd className="text-[#131720]">{job.Posted || "—"}</dd>
+                      <dd className="text-[#131720]">
+                        {job.Posted || "—"}
+                        {formatRelativeTime(job.Posted) && (
+                          <span className="block text-[10px] text-[#94A3B8]">
+                            {formatRelativeTime(job.Posted)}
+                          </span>
+                        )}
+                      </dd>
                     </div>
                   </dl>
                   <div className="flex items-center justify-between mt-3 text-xs">
@@ -568,14 +719,15 @@ export function AdminDashboardClient() {
                       type="button"
                       onClick={() => handleStatusToggle(job)}
                       disabled={statusUpdating === job.Id}
+                      title="Click to toggle hiring/closed"
                       className={clsx(
                         "px-2 py-1 rounded-full font-semibold cursor-pointer transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed",
                         job.Status === "closed"
-                          ? "bg-[#FEE2E2] text-[#B91C1C]"
+                          ? "bg-[#DBEAFE] text-[#1E40AF]"
                           : "bg-[#DCFCE7] text-[#15803D]"
                       )}
                     >
-                      {statusUpdating === job.Id ? "…" : job.Status === "closed" ? "Closed" : "Open"}
+                      {statusUpdating === job.Id ? "…" : job.Status === "closed" ? "Closed" : "Hiring"}
                     </button>
                     <span className="text-[#64748B]">
                       {job.LinkClicks ?? 0} link click{job.LinkClicks === 1 ? "" : "s"}
@@ -625,7 +777,7 @@ export function AdminDashboardClient() {
             <h2 className="text-xl font-bold mb-5 text-center text-[#1e3143]">Post a New Job</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {FORM_FIELDS.map(({ key, label, placeholder }) => (
+                {FORM_FIELDS.map(({ key, label, placeholder, iconField }) => (
                   <div key={key}>
                     <label
                       htmlFor={`job-${key}`}
@@ -642,6 +794,26 @@ export function AdminDashboardClient() {
                       required
                       className="w-full p-2 border border-[#aec2cc] rounded-[4px] focus:outline-none focus:ring-1 focus:ring-[#1484bc]"
                     />
+                    {/* Icon picker — only for Department/Designation/Type
+                        (see FORM_FIELDS above). Purely decorative, saved
+                        alongside the job once it's created — see
+                        handleSubmit and src/lib/jobFieldIcons.ts. */}
+                    {iconField && (
+                      <FieldIconPicker
+                        value={draft.FieldIcons[iconField]}
+                        onChange={(next) =>
+                          setDraft((prev) => {
+                            const nextIcons = { ...prev.FieldIcons };
+                            if (next) {
+                              nextIcons[iconField] = next;
+                            } else {
+                              delete nextIcons[iconField];
+                            }
+                            return { ...prev, FieldIcons: nextIcons };
+                          })
+                        }
+                      />
+                    )}
                   </div>
                 ))}
               </div>

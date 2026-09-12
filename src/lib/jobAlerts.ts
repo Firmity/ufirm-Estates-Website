@@ -5,9 +5,13 @@
 // Subscriber list is entirely our own data (Redis in production,
 // data/job-alert-subscribers.json fallback locally — see src/lib/kv.ts).
 //
-// Sending reuses the same GoDaddy SMTP account as
-// src/app/api/upload-resume/route.ts and src/app/api/contact/route.ts
-// (EMAIL_USERNAME / EMAIL_PASSWORD — already set in this project's env).
+// Sending uses the dedicated careers mailbox (career@ufirm.in) via
+// CAREERS_EMAIL_USERNAME / CAREERS_EMAIL_PASSWORD — same GoDaddy SMTP
+// provider as src/app/api/upload-resume/route.ts, but a DIFFERENT mailbox
+// from EMAIL_USERNAME/EMAIL_PASSWORD (crm@ufirm.in), which
+// src/app/api/contact/route.ts, src/app/api/demo-request/route.ts, and
+// src/app/api/subscribe/route.ts still use for the general site. Hiring
+// mail must not go out (or receive replies) through the general inbox.
 // The transporter is pooled and capped (maxConnections/maxMessages) so a
 // job post with a large subscriber list opens a handful of SMTP
 // connections, not one per subscriber at once — GoDaddy (or any SMTP
@@ -127,8 +131,8 @@ export async function notifySubscribersOfNewJob(job: {
       port: 465,
       secure: true,
       auth: {
-        user: process.env.EMAIL_USERNAME,
-        pass: process.env.EMAIL_PASSWORD,
+        user: process.env.CAREERS_EMAIL_USERNAME,
+        pass: process.env.CAREERS_EMAIL_PASSWORD,
       },
       pool: true,
       maxConnections: 3,
@@ -144,7 +148,7 @@ export async function notifySubscribersOfNewJob(job: {
           email
         )}&token=${getUnsubscribeToken(email)}`;
         return transporter.sendMail({
-          from: process.env.EMAIL_USERNAME,
+          from: process.env.CAREERS_EMAIL_USERNAME,
           to: email,
           subject: `New opening at UFirm: ${job.Title}`,
           text:

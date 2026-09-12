@@ -1,6 +1,5 @@
 "use client";
 import React, { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { FaLinkedinIn, FaFacebookF, FaInstagram, FaYoutube } from "react-icons/fa";
@@ -68,7 +67,6 @@ const SubscribeSuccessModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: 
 };
 
 const Footer = () => {
-    const router = useRouter();
     const [email, setEmail] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [isSubscribed, setIsSubscribed] = useState(false);
@@ -280,8 +278,18 @@ const Footer = () => {
                                     <li key={i} className="relative group">
                                         <Link href={link.href} className="inline-flex items-center justify-center lg:justify-between w-full group transition-all duration-300">
                                             <span>{link.label}</span>
+                                            {/* hidden below lg: this icon is laid out
+                                                (just invisible) even at opacity-0, so
+                                                inside the mobile/tablet justify-center
+                                                row it silently pushed every label off
+                                                true center by half its own width — that
+                                                was the "not center aligned" look. The
+                                                hover-reveal only makes sense on lg+
+                                                anyway (no hover on touch), so it's
+                                                removed from layout entirely below lg
+                                                instead of just staying invisible. */}
                                             <ArrowRight
-                                                className="opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-[-10px] group-hover:translate-x-0"
+                                                className="hidden lg:block opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-[-10px] group-hover:translate-x-0"
                                                 size={16}
                                             />
                                         </Link>
@@ -338,16 +346,14 @@ const Footer = () => {
             <div className="bg-white py-6">
                 <div className="max-w-[1440px] mx-auto px-6 sm:px-12 md:px-16 lg:px-24 flex flex-col md:flex-row justify-between items-center gap-8">
                     <div className="flex items-center gap-5 flex-shrink-0">
-                        {/* h-9 matches the navbar's Contact Us button height,
-                            same reasoning as NavBar.tsx's logo. */}
-                        <div className="h-9 w-auto flex items-center overflow-hidden">
+                        <div className="h-10 w-auto flex items-center overflow-hidden">
                             <Image
                                 src="/logos/Ufirm Logo Trimmed.png"
                                 alt="UFIRM ESTATES"
                                 width={100}
-                                height={36}
-                                className="h-9 w-auto object-contain cursor-pointer"
-                                onClick={() => router.push("/")}
+                                height={40}
+                                className="h-10 w-auto object-contain cursor-pointer"
+                                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
                             />
                         </div>
                         {/* <Link

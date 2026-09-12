@@ -6,6 +6,7 @@ import { deleteDescription, setDescription } from "@/lib/jobDescriptions";
 import { deleteStatus, setStatus, type JobStatus } from "@/lib/jobStatus";
 import { deleteFieldIcons, setFieldIcons, type FieldIconMap, type IconableField } from "@/lib/jobFieldIcons";
 import { deleteExtras, setExtras, type CtcFrequency } from "@/lib/jobExtras";
+import { invalidateJobsListCache } from "@/lib/jobsCache";
 
 const ICONABLE_FIELD_KEYS: IconableField[] = [
   "Department",
@@ -41,6 +42,12 @@ function isJobStatus(v: unknown): v is JobStatus {
 // field icons, CTC frequency, and end date: the external API has never had
 // a concept of any of these at all. Body may include any subset of these
 // five, or none (a no-op, not an error).
+//
+// No jobs-list cache invalidation here (see src/lib/jobsCache.ts) — none
+// of these fields are part of the cached upstream snapshot. They're
+// re-read from their own local stores on every /api/jobs request
+// regardless of cache state, so an edit here is already visible on the
+// very next page load.
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -166,6 +173,15 @@ export async function DELETE(
         { message: "Failed to delete job on Urest" },
         { status: 502 }
       );
+    }
+
+    // The job list changed upstream — invalidate the shared cache (see
+    // src/lib/jobsCache.ts) so the deleted job disappears from the very
+    // next /api/jobs read instead of lingering for up to the cache TTL.
+    try {
+      await invalidateJobsListCache();
+    } catch (err) {
+      console.error("[JOBS_CACHE_INVALIDATE_ERR]", err);
     }
 
     // Purge every locally-stored field so a future job that happens to

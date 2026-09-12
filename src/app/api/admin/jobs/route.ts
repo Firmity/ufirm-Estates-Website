@@ -14,6 +14,7 @@ import { setDescription } from "@/lib/jobDescriptions";
 import { notifySubscribersOfNewJob } from "@/lib/jobAlerts";
 import { setFieldIcons, type FieldIconMap } from "@/lib/jobFieldIcons";
 import { setExtras, type CtcFrequency } from "@/lib/jobExtras";
+import { invalidateJobsListCache } from "@/lib/jobsCache";
 
 const EXTERNAL_JOBS_URL = "https://api.urest.in:8096/api/jobs";
 
@@ -160,6 +161,19 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await upstream.json();
+
+    // The job list changed upstream — invalidate the shared cache (see
+    // src/lib/jobsCache.ts) BEFORE the best-effort local-data saves below,
+    // so even if one of those is slow or fails, the next /api/jobs read
+    // (including the admin dashboard's own post-create reload) already
+    // sees the new job instead of waiting out the cache TTL. Best-effort —
+    // kvDelete never throws — but wrapped anyway since this must never be
+    // the reason a successful job posting reports as failed.
+    try {
+      await invalidateJobsListCache();
+    } catch (err) {
+      console.error("[JOBS_CACHE_INVALIDATE_ERR]", err);
+    }
 
     // Description is our own data (see src/lib/jobDescriptions.ts) — the
     // external API silently drops this field, so we save it locally keyed

@@ -510,7 +510,12 @@ export function CareersPageClient() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.25 }}
             >
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+              {/* pr-3/sm:pr-4 matches the search card's own p-3/sm:p-4
+                  inner padding (see the search console above) so this
+                  row's right edge — where the button group ends —
+                  lines up with the search box's visible right edge
+                  instead of overshooting past it. */}
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pr-3 sm:pr-4">
                 <h2 className="text-xl font-semibold text-[#1e3143] flex items-center">
                   {jobsLoading ? (
                     <motion.span
@@ -581,7 +586,12 @@ export function CareersPageClient() {
                       key={job.Id ?? idx}
                       id={`job-${job.Id}`}
                       className={clsx(
-                        "group relative bg-white rounded-[8px] p-5 shadow-sm border transition-all duration-500",
+                        // pl-7 (vs. the p-5 default of pl-5) gives the
+                        // decorative accent bar below more breathing room
+                        // before the title/fields start — at p-5 alone the
+                        // bar's right edge sat only ~6px from the text,
+                        // which read as cramped/overlapping on mobile.
+                        "group relative bg-white rounded-[8px] p-5 pl-7 shadow-sm border transition-all duration-500",
                         isHighlighted
                           ? "bg-[#EAFBF0] border-[#86EFAC] shadow-[0_0_0_3px_rgba(34,197,94,0.18)]"
                           : "border-[#dbe3e7] hover:shadow-md hover:border-[#aec2cc]"
@@ -605,27 +615,45 @@ export function CareersPageClient() {
 
                       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                            <h3 className="text-xl font-bold text-[#1e3143]">{job.Title}</h3>
-                            {job.Company && (
-                              <span className="text-sm text-[#64748B]">{job.Company}</span>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
+                              <h3 className="text-xl font-bold text-[#1e3143]">{job.Title}</h3>
+                              {job.Company && (
+                                <span className="text-sm text-[#64748B]">{job.Company}</span>
+                              )}
+                            </div>
+                            {/* Mobile-only Share, next to the title. On phone
+                                the action row below wraps (Apply Now + View
+                                details + Share don't fit one line), which
+                                orphaned the icon-only Share button under the
+                                other two. sm:hidden here + the matching
+                                hidden sm:inline-flex on the copy in that
+                                action row keeps exactly one Share button
+                                visible per breakpoint. */}
+                            {mounted && (
+                              <div className="sm:hidden shrink-0">
+                                <ShareMenu url={getJobUrl(job.Id)} title={job.Title} />
+                              </div>
                             )}
                           </div>
-                          {/* Requisition ID, status, and "posted X ago" all
-                              on one line — status sits immediately to the
-                              RIGHT of the requisition ID by design (not up
-                              by the title), and wraps as a group on narrow
-                              screens rather than each piece wrapping alone. */}
+                          {/* Requisition ID, "posted X ago", and status all
+                              on one line, in that order — status comes LAST
+                              now (not up by the title), and "posted X ago"
+                              shares the Requisition ID's color (#64748B)
+                              instead of a lighter one, so the two read as
+                              one consistent metadata line. Wraps as a group
+                              on narrow screens rather than each piece
+                              wrapping alone. */}
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
                             <p className="text-xs text-[#64748B]">
                               Requisition ID {getRequisitionId(job.Id)}
                             </p>
-                            <JobStatusBadge status={job.Status} />
                             {formatRelativeTime(job.Posted) && (
-                              <span className="text-xs text-[#94A3B8]">
+                              <span className="text-xs text-[#64748B]">
                                 · Posted {formatRelativeTime(job.Posted)}
                               </span>
                             )}
+                            <JobStatusBadge status={job.Status} />
                           </div>
 
                           {/* Labeled fields, SAP/LinkedIn-style — every value
@@ -646,12 +674,17 @@ export function CareersPageClient() {
                           )}
                         </div>
 
-                        {/* Apply Now, View details, and Share all sit in one
-                            row, vertically centered together — the same
-                            pattern as Contact us + Login in the navbar,
-                            not two buttons on one line with Share
-                            orphaned underneath. */}
-                        <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+                        {/* Apply Now, View details, and Share (desktop copy
+                            — see the mobile one next to the title above)
+                            all sit in one row, vertically centered together.
+                            justify-start on mobile: this row sits BELOW the
+                            content in the flex-col layout and stretches
+                            full width, so justify-end alone would push it
+                            flush right — out of alignment with the content
+                            above it. sm:justify-end restores the original
+                            right-aligned-within-the-row look once this
+                            becomes a side-by-side row on larger screens. */}
+                        <div className="flex flex-wrap items-center justify-start sm:justify-end gap-2 shrink-0">
                           <NavButton
                             type="button"
                             variant="primary"
@@ -670,7 +703,11 @@ export function CareersPageClient() {
                           >
                             View details
                           </NavButton>
-                          {mounted && <ShareMenu url={getJobUrl(job.Id)} title={job.Title} />}
+                          {mounted && (
+                            <div className="hidden sm:inline-flex">
+                              <ShareMenu url={getJobUrl(job.Id)} title={job.Title} />
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -773,19 +810,19 @@ export function CareersPageClient() {
                   {viewDetailsJob.Company && (
                     <p className="text-sm text-[#64748B] mt-0.5">{viewDetailsJob.Company}</p>
                   )}
-                  {/* Same "Requisition ID, then status immediately to its
-                      right, then posted-X-ago" line as the card — see the
-                      matching block in the job list above. */}
+                  {/* Same "Requisition ID, then posted-X-ago, then status
+                      last" line as the card — see the matching block in
+                      the job list above. */}
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
                     <p className="text-xs text-[#64748B]">
                       Requisition ID {getRequisitionId(viewDetailsJob.Id)}
                     </p>
-                    <JobStatusBadge status={viewDetailsJob.Status} />
                     {formatRelativeTime(viewDetailsJob.Posted) && (
-                      <span className="text-xs text-[#94A3B8]">
+                      <span className="text-xs text-[#64748B]">
                         · Posted {formatRelativeTime(viewDetailsJob.Posted)}
                       </span>
                     )}
+                    <JobStatusBadge status={viewDetailsJob.Status} />
                   </div>
                 </div>
                 <button

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -20,16 +20,25 @@ import {
 import { getAllJobs, JobInfo } from "@/app/api/job";
 import { RichTextEditor } from "@/components/ui/RichTextEditor";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { PredefinedSelect, PredefinedMultiSelect } from "@/components/ui/PredefinedSelect";
 import { getRequisitionId } from "@/lib/requisitionId";
 import { formatRelativeTime } from "@/lib/relativeTime";
 import { FIELD_ICON_OPTIONS, getFieldIcon } from "@/lib/iconRegistry";
 import { formatCtc } from "@/lib/ctcFormat";
+import {
+  formatWorkingHours,
+  parseWorkingHours,
+  isValidTimeText,
+  EMPTY_WORKING_HOURS_PARTS,
+  type WorkingHoursParts,
+  type Period,
+} from "@/lib/workingHours";
 import type { FieldIconMap, IconableField } from "@/lib/jobFieldIcons";
-// Type-only import — src/lib/jobExtras.ts pulls in `fs`/`path` for its
+// Type-only imports — src/lib/jobExtras.ts pulls in `fs`/`path` for its
 // Redis/local-file storage and can never be imported for a runtime value
 // from a "use client" file without breaking the browser bundle. A `type`
 // import is erased entirely at compile time, so this is safe.
-import type { CtcFrequency } from "@/lib/jobExtras";
+import type { CtcFrequency, CompensationType } from "@/lib/jobExtras";
 
 type JobDraft = {
   Title: string;
@@ -48,6 +57,17 @@ type JobDraft = {
   // input stays a controlled component.
   CtcFrequency: CtcFrequency;
   EndDate: string;
+  // Everything below is local-only too, same story as CtcFrequency/EndDate
+  // — see src/lib/jobExtras.ts. Category/Skills draw from the growable
+  // predefined lists in src/lib/jobTaxonomy.ts (see the `taxonomy` state
+  // below). WorkingDays is the Dropdown's string value ("1".."7", or "" =
+  // not set) rather than a number, so it stays a normal controlled
+  // Dropdown; it's parsed to a number only in handleSubmit.
+  Category: string;
+  WorkingDays: string;
+  WorkingHours: WorkingHoursParts;
+  CompensationType: CompensationType | "";
+  Skills: string[];
 };
 
 const EMPTY_DRAFT: JobDraft = {
@@ -62,11 +82,32 @@ const EMPTY_DRAFT: JobDraft = {
   FieldIcons: {},
   CtcFrequency: "annual",
   EndDate: "",
+  Category: "",
+  WorkingDays: "",
+  WorkingHours: EMPTY_WORKING_HOURS_PARTS,
+  CompensationType: "",
+  Skills: [],
 };
 
 const CTC_FREQUENCY_OPTIONS: { value: CtcFrequency; label: string }[] = [
   { value: "annual", label: "Annual" },
   { value: "monthly", label: "Monthly" },
+];
+
+const WORKING_DAYS_OPTIONS: { value: string; label: string }[] = Array.from({ length: 7 }, (_, i) => {
+  const n = i + 1;
+  return { value: String(n), label: `${n} day${n === 1 ? "" : "s"}/week` };
+});
+
+const PERIOD_OPTIONS: { value: Period; label: string }[] = [
+  { value: "AM", label: "AM" },
+  { value: "PM", label: "PM" },
+];
+
+const COMPENSATION_TYPE_OPTIONS: { value: CompensationType; label: string }[] = [
+  { value: "fixed", label: "Fixed" },
+  { value: "fixed_incentive", label: "Fixed + Incentive" },
+  { value: "commission", label: "Commission-based" },
 ];
 
 // iconField (optional) — every field here now gets an icon picker except
@@ -83,7 +124,7 @@ const FORM_FIELDS: {
   { key: "Title", label: "Job Title", placeholder: "e.g. Facility Executive" },
   { key: "Type", label: "Job Type", placeholder: "e.g. Full-time", iconField: "Type" },
   { key: "Education", label: "Education", placeholder: "e.g. Graduate", iconField: "Education" },
-  { key: "CTC", label: "CTC", placeholder: "e.g. 3.5 - 4.5 LPA", iconField: "CTC" },
+  { key: "CTC", label: "In-hand CTC", placeholder: "e.g. 3.5 - 4.5 LPA", iconField: "CTC" },
   { key: "Department", label: "Department", placeholder: "e.g. Facility Management", iconField: "Department" },
   { key: "Designation", label: "Designation", placeholder: "e.g. Technician", iconField: "Designation" },
 ];
@@ -148,6 +189,162 @@ function FieldIconPicker({
           <Icon className="text-sm" />
         </button>
       ))}
+    </div>
+  );
+}
+
+// Fixed / Fixed + Incentive / Commission-based — a small standalone radio
+// group rather than a Dropdown, since with only three short options radios
+// let an admin see and pick the whole structure at a glance instead of
+// opening a panel. Rendered right before the CTC field in both the create
+// form and the edit-details modal (see the "sm:col-span-2" wrapper each
+// caller places it in) — the compensation structure is context for the
+// number that follows it, so it reads better first.
+function CompensationTypeRadios({
+  value,
+  onChange,
+}: {
+  value: CompensationType | "";
+  onChange: (next: CompensationType) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-4" role="radiogroup" aria-label="Compensation type">
+      {COMPENSATION_TYPE_OPTIONS.map((opt) => (
+        <label key={opt.value} className="flex items-center gap-1.5 text-sm text-[#131720] cursor-pointer">
+          <input
+            type="radio"
+            name="compensationType"
+            value={opt.value}
+            checked={value === opt.value}
+            onChange={() => onChange(opt.value)}
+            className="accent-[#1484bc] cursor-pointer"
+          />
+          {opt.label}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+// Category, Working Days, Working Hours, and Skills — grouped together
+// since none of them has CompensationType's "must sit right before CTC"
+// constraint, and bundling them saves duplicating this block between the
+// create form and the edit-details modal. `categories`/`skills` are the
+// live predefined-plus-custom option lists (see the `taxonomy` state in
+// AdminDashboardClient and src/lib/jobTaxonomy.ts); `onAddCategory`/
+// `onAddSkill` persist a brand-new custom entry via POST
+// /api/admin/job-taxonomy so it's remembered for future job posts too.
+function JobExtraFieldsSection({
+  categories,
+  skills,
+  onAddCategory,
+  onAddSkill,
+  category,
+  onCategoryChange,
+  workingDays,
+  onWorkingDaysChange,
+  workingHours,
+  onWorkingHoursChange,
+  skillsValue,
+  onSkillsChange,
+}: {
+  categories: string[];
+  skills: string[];
+  onAddCategory: (name: string) => void;
+  onAddSkill: (name: string) => void;
+  category: string;
+  onCategoryChange: (value: string) => void;
+  workingDays: string;
+  onWorkingDaysChange: (value: string) => void;
+  workingHours: WorkingHoursParts;
+  onWorkingHoursChange: (next: WorkingHoursParts) => void;
+  skillsValue: string[];
+  onSkillsChange: (next: string[]) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-[#1e3143] mb-1">
+            Category <span className="text-[#64748B] font-normal">(optional)</span>
+          </label>
+          <PredefinedSelect
+            options={categories}
+            value={category}
+            onChange={onCategoryChange}
+            onAddOption={onAddCategory}
+            placeholder="Select a category"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-[#1e3143] mb-1">
+            Working Days <span className="text-[#64748B] font-normal">(optional)</span>
+          </label>
+          <Dropdown
+            value={workingDays}
+            onChange={onWorkingDaysChange}
+            options={WORKING_DAYS_OPTIONS}
+            placeholder="Select..."
+            className="w-full"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-[#1e3143] mb-1">
+          Working Hours <span className="text-[#64748B] font-normal">(optional)</span>
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            value={workingHours.startTime}
+            onChange={(e) => onWorkingHoursChange({ ...workingHours, startTime: e.target.value })}
+            placeholder="9:00"
+            aria-label="Start time"
+            className={clsx(
+              "w-20 p-2 border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-[#1484bc]",
+              workingHours.startTime && !isValidTimeText(workingHours.startTime) ? "border-red-400" : "border-[#aec2cc]"
+            )}
+          />
+          <Dropdown
+            value={workingHours.startPeriod}
+            onChange={(v) => onWorkingHoursChange({ ...workingHours, startPeriod: v as Period })}
+            options={PERIOD_OPTIONS}
+            className="w-24"
+          />
+          <span className="text-sm text-[#64748B]">to</span>
+          <input
+            type="text"
+            value={workingHours.endTime}
+            onChange={(e) => onWorkingHoursChange({ ...workingHours, endTime: e.target.value })}
+            placeholder="6:00"
+            aria-label="End time"
+            className={clsx(
+              "w-20 p-2 border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-[#1484bc]",
+              workingHours.endTime && !isValidTimeText(workingHours.endTime) ? "border-red-400" : "border-[#aec2cc]"
+            )}
+          />
+          <Dropdown
+            value={workingHours.endPeriod}
+            onChange={(v) => onWorkingHoursChange({ ...workingHours, endPeriod: v as Period })}
+            options={PERIOD_OPTIONS}
+            className="w-24"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-[#1e3143] mb-1">
+          Skills <span className="text-[#64748B] font-normal">(optional)</span>
+        </label>
+        <PredefinedMultiSelect
+          options={skills}
+          value={skillsValue}
+          onChange={onSkillsChange}
+          onAddOption={onAddSkill}
+          placeholder="Select skills..."
+        />
+      </div>
     </div>
   );
 }
@@ -227,6 +424,23 @@ export function AdminDashboardClient() {
   const [detailsEndDate, setDetailsEndDate] = useState("");
   const [descriptionSubmitting, setDescriptionSubmitting] = useState(false);
   const [descriptionError, setDescriptionError] = useState<string | null>(null);
+  // Category/WorkingDays/WorkingHours/CompensationType/Skills, edited in
+  // the same "Edit Job Details" modal as CTC frequency/end date above —
+  // same PATCH call, see handleDescriptionSave and src/lib/jobExtras.ts.
+  const [detailsCategory, setDetailsCategory] = useState("");
+  const [detailsWorkingDays, setDetailsWorkingDays] = useState("");
+  const [detailsWorkingHours, setDetailsWorkingHours] = useState<WorkingHoursParts>(EMPTY_WORKING_HOURS_PARTS);
+  const [detailsCompensationType, setDetailsCompensationType] = useState<CompensationType | "">("");
+  const [detailsSkills, setDetailsSkills] = useState<string[]>([]);
+
+  // Predefined-plus-custom Category/Skills option lists — see
+  // src/lib/jobTaxonomy.ts. Fetched once on mount; growing it (via the "+"
+  // flow in PredefinedSelect) updates this state directly so a newly added
+  // entry shows up immediately without a re-fetch.
+  const [taxonomy, setTaxonomy] = useState<{ categories: string[]; skills: string[] }>({
+    categories: [],
+    skills: [],
+  });
 
   // Open/Closed toggle — writes only to our own local status store (see
   // src/lib/jobStatus.ts), same independence-from-upstream pattern as the
@@ -264,6 +478,44 @@ export function AdminDashboardClient() {
       .catch((err) => console.error("[ADMIN_JOB_ALERTS_COUNT_ERR]", err));
   }, []);
 
+  useEffect(() => {
+    fetch("/api/admin/job-taxonomy")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.categories) && Array.isArray(data.skills)) {
+          setTaxonomy({ categories: data.categories, skills: data.skills });
+        }
+      })
+      .catch((err) => console.error("[ADMIN_JOB_TAXONOMY_FETCH_ERR]", err));
+  }, []);
+
+  // Shared by both the create form and the edit-details modal (see
+  // JobExtraFieldsSection) — persists a genuinely new category/skill via
+  // POST /api/admin/job-taxonomy and folds it into local state immediately
+  // so it's selectable right away, without waiting on a re-fetch. Runs
+  // fire-and-forget: PredefinedSelect already applies the new value to the
+  // field optimistically (see its onAddOption call site below), so a slow
+  // or failed save here costs at most "this entry isn't remembered for
+  // next time," never a blocked or broken job post.
+  const addTaxonomyEntry = (type: "category" | "skill", name: string) => {
+    setTaxonomy((prev) => {
+      const key = type === "category" ? "categories" : "skills";
+      if (prev[key].some((v) => v.toLowerCase() === name.toLowerCase())) return prev;
+      return { ...prev, [key]: [...prev[key], name] };
+    });
+    fetch("/api/admin/job-taxonomy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, name }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.categories) setTaxonomy((prev) => ({ ...prev, categories: data.categories }));
+        if (data?.skills) setTaxonomy((prev) => ({ ...prev, skills: data.skills }));
+      })
+      .catch((err) => console.error("[ADMIN_JOB_TAXONOMY_ADD_ERR]", err));
+  };
+
   const filteredJobs = jobs.filter((job) => {
     const matchesSearch = job.Title?.toLowerCase().includes(search.toLowerCase());
     const matchesStatus =
@@ -282,10 +534,25 @@ export function AdminDashboardClient() {
     e.preventDefault();
     setSubmitting(true);
     try {
+      // draft's shapes are UI-convenient, not wire-convenient — WorkingDays
+      // is a Dropdown string ("" | "1".."7"), WorkingHours is the split
+      // start/end/period struct the two Dropdowns + inputs edit directly,
+      // and CompensationType can be "" (not yet chosen). The server's
+      // NewJobBody (src/app/api/admin/jobs/route.ts) wants a number, a
+      // single formatted string, and either a valid enum value or the key
+      // omitted entirely — never "". Convert here, once, at the boundary.
+      const { WorkingDays, WorkingHours, CompensationType: draftCompType, ...rest } = draft;
+      const payload = {
+        ...rest,
+        ...(WorkingDays ? { WorkingDays: Number(WorkingDays) } : {}),
+        ...(formatWorkingHours(WorkingHours) ? { WorkingHours: formatWorkingHours(WorkingHours) } : {}),
+        ...(draftCompType ? { CompensationType: draftCompType } : {}),
+      };
+
       const res = await fetch("/api/admin/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft),
+        body: JSON.stringify(payload),
       });
 
       if (res.status === 401) {
@@ -343,6 +610,11 @@ export function AdminDashboardClient() {
     setDescriptionDraft(job.Description || "");
     setDetailsCtcFrequency(job.CtcFrequency ?? "annual");
     setDetailsEndDate(job.EndDate || "");
+    setDetailsCategory(job.Category || "");
+    setDetailsWorkingDays(job.WorkingDays ? String(job.WorkingDays) : "");
+    setDetailsWorkingHours(parseWorkingHours(job.WorkingHours) ?? EMPTY_WORKING_HOURS_PARTS);
+    setDetailsCompensationType(job.CompensationType ?? "");
+    setDetailsSkills(job.Skills ?? []);
     setDescriptionError(null);
   };
 
@@ -351,6 +623,13 @@ export function AdminDashboardClient() {
     setDescriptionSubmitting(true);
     setDescriptionError(null);
     try {
+      // Same UI-shape -> wire-shape conversion as handleSubmit above.
+      // workingDays: "" means "leave alone" isn't right here — the field
+      // has been actively edited in this modal — so an empty Dropdown
+      // value sends 0, which src/app/api/admin/jobs/[id]/route.ts (and
+      // src/lib/jobExtras.ts's setExtras) treats as the explicit "clear
+      // this field" sentinel, matching the "" -> clear convention used for
+      // category/workingHours below.
       const res = await fetch(`/api/admin/jobs/${editingDescriptionFor.Id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -358,6 +637,11 @@ export function AdminDashboardClient() {
           description: descriptionDraft,
           ctcFrequency: detailsCtcFrequency,
           endDate: detailsEndDate,
+          category: detailsCategory,
+          workingDays: detailsWorkingDays ? Number(detailsWorkingDays) : 0,
+          workingHours: formatWorkingHours(detailsWorkingHours),
+          ...(detailsCompensationType ? { compensationType: detailsCompensationType } : {}),
+          skills: detailsSkills,
         }),
       });
 
@@ -381,6 +665,11 @@ export function AdminDashboardClient() {
                 Description: descriptionDraft,
                 CtcFrequency: detailsCtcFrequency,
                 EndDate: detailsEndDate || undefined,
+                Category: detailsCategory || undefined,
+                WorkingDays: detailsWorkingDays ? Number(detailsWorkingDays) : undefined,
+                WorkingHours: formatWorkingHours(detailsWorkingHours) || undefined,
+                CompensationType: detailsCompensationType || undefined,
+                Skills: detailsSkills.length > 0 ? detailsSkills : undefined,
               }
             : j
         )
@@ -596,7 +885,7 @@ export function AdminDashboardClient() {
                       <th className="px-4 py-3">Department</th>
                       <th className="px-4 py-3">Designation</th>
                       <th className="px-4 py-3">Type</th>
-                      <th className="px-4 py-3">CTC</th>
+                      <th className="px-4 py-3">In-hand CTC</th>
                       <th className="px-4 py-3">Education</th>
                       <th className="px-4 py-3">Posted</th>
                       <th className="px-4 py-3">Apply By</th>
@@ -758,7 +1047,7 @@ export function AdminDashboardClient() {
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-[#94A3B8]">CTC</dt>
+                      <dt className="text-[#94A3B8]">In-hand CTC</dt>
                       <dd className="text-[#131720]">
                         <FieldValueWithIcon iconKey={job.FieldIcons?.CTC} value={formatCtc(job.CTC, job.CtcFrequency)} />
                       </dd>
@@ -849,7 +1138,23 @@ export function AdminDashboardClient() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {FORM_FIELDS.map(({ key, label, placeholder, iconField }) => (
-                  <div key={key}>
+                  <Fragment key={key}>
+                    {/* Compensation structure reads as context for the CTC
+                        number that follows it, so it's inserted right
+                        before that field's own cell (see CompensationTypeRadios'
+                        header comment) rather than living elsewhere in the form. */}
+                    {key === "CTC" && (
+                      <div className="sm:col-span-2">
+                        <label className="block text-sm font-medium text-[#1e3143] mb-1">
+                          Compensation Type <span className="text-[#64748B] font-normal">(optional)</span>
+                        </label>
+                        <CompensationTypeRadios
+                          value={draft.CompensationType}
+                          onChange={(next) => setDraft((prev) => ({ ...prev, CompensationType: next }))}
+                        />
+                      </div>
+                    )}
+                    <div>
                     <label
                       htmlFor={`job-${key}`}
                       className="block text-sm font-medium text-[#1e3143] mb-1"
@@ -912,9 +1217,25 @@ export function AdminDashboardClient() {
                         }
                       />
                     )}
-                  </div>
+                    </div>
+                  </Fragment>
                 ))}
               </div>
+
+              <JobExtraFieldsSection
+                categories={taxonomy.categories}
+                skills={taxonomy.skills}
+                onAddCategory={(name) => addTaxonomyEntry("category", name)}
+                onAddSkill={(name) => addTaxonomyEntry("skill", name)}
+                category={draft.Category}
+                onCategoryChange={(value) => setDraft((prev) => ({ ...prev, Category: value }))}
+                workingDays={draft.WorkingDays}
+                onWorkingDaysChange={(value) => setDraft((prev) => ({ ...prev, WorkingDays: value }))}
+                workingHours={draft.WorkingHours}
+                onWorkingHoursChange={(next) => setDraft((prev) => ({ ...prev, WorkingHours: next }))}
+                skillsValue={draft.Skills}
+                onSkillsChange={(next) => setDraft((prev) => ({ ...prev, Skills: next }))}
+              />
 
               {/* Application end date + the icon for "Posted" — both live
                   outside the FORM_FIELDS grid: EndDate is a date input with
@@ -1078,6 +1399,16 @@ export function AdminDashboardClient() {
             <h2 className="text-xl font-bold mb-1 text-center text-[#1e3143]">Edit Job Details</h2>
             <p className="text-sm text-[#64748B] text-center mb-5">{editingDescriptionFor.Title}</p>
 
+            <div className="mb-5">
+              <label className="block text-sm font-medium text-[#1e3143] mb-1">
+                Compensation Type <span className="text-[#64748B] font-normal">(optional)</span>
+              </label>
+              <CompensationTypeRadios
+                value={detailsCompensationType}
+                onChange={setDetailsCompensationType}
+              />
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
               <div>
                 <label className="block text-sm font-medium text-[#1e3143] mb-1">CTC Frequency</label>
@@ -1103,6 +1434,23 @@ export function AdminDashboardClient() {
                   className="w-full p-2 border border-[#aec2cc] rounded-[4px] focus:outline-none focus:ring-1 focus:ring-[#1484bc]"
                 />
               </div>
+            </div>
+
+            <div className="mb-5">
+              <JobExtraFieldsSection
+                categories={taxonomy.categories}
+                skills={taxonomy.skills}
+                onAddCategory={(name) => addTaxonomyEntry("category", name)}
+                onAddSkill={(name) => addTaxonomyEntry("skill", name)}
+                category={detailsCategory}
+                onCategoryChange={setDetailsCategory}
+                workingDays={detailsWorkingDays}
+                onWorkingDaysChange={setDetailsWorkingDays}
+                workingHours={detailsWorkingHours}
+                onWorkingHoursChange={setDetailsWorkingHours}
+                skillsValue={detailsSkills}
+                onSkillsChange={setDetailsSkills}
+              />
             </div>
 
             <label className="block text-sm font-medium text-[#1e3143] mb-1">Job Description</label>

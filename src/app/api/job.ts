@@ -24,12 +24,20 @@ export type JobInfo = {
   // src/app/api/jobs/route.ts. See src/lib/jobFieldIcons.ts and
   // src/lib/iconRegistry.tsx.
   FieldIcons?: Partial<Record<"Department" | "Designation" | "Type" | "Education" | "CTC" | "Posted", string>>;
-  // CtcFrequency/EndDate: same "our own data merged on top" story, from
+  // CtcFrequency/EndDate/Category/WorkingDays/WorkingHours/CompensationType/
+  // Skills: same "our own data merged on top" story, from
   // src/lib/jobExtras.ts. CtcFrequency has no stored default — treat a
   // missing value as "annual" (matches every pre-existing CTC value in this
-  // app, e.g. "3.5 - 4.5 LPA", which was always an annual figure).
+  // app, e.g. "3.5 - 4.5 LPA", which was always an annual figure). Every
+  // field below is genuinely optional — none of this existed before, so
+  // any job created earlier simply has none of it.
   CtcFrequency?: "annual" | "monthly";
   EndDate?: string;
+  Category?: string;
+  WorkingDays?: number;
+  WorkingHours?: string;
+  CompensationType?: "fixed" | "fixed_incentive" | "commission";
+  Skills?: string[];
 };
 
 const BASE_URL = "https://api.urest.in:8096/api/jobs";

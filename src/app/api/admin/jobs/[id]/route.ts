@@ -5,7 +5,7 @@ import { ADMIN_SESSION_COOKIE, verifySessionCookieValue } from "@/lib/adminAuth"
 import { deleteDescription, setDescription } from "@/lib/jobDescriptions";
 import { deleteStatus, setStatus, type JobStatus } from "@/lib/jobStatus";
 import { deleteFieldIcons, setFieldIcons, type FieldIconMap, type IconableField } from "@/lib/jobFieldIcons";
-import { deleteExtras, setExtras, type CtcFrequency } from "@/lib/jobExtras";
+import { deleteExtras, setExtras, type CtcFrequency, type CompensationType } from "@/lib/jobExtras";
 import { invalidateJobsListCache } from "@/lib/jobsCache";
 
 const ICONABLE_FIELD_KEYS: IconableField[] = [
@@ -29,19 +29,30 @@ function isFieldIconMap(v: unknown): v is FieldIconMap {
 }
 
 const EXTERNAL_JOBS_URL = "https://api.urest.in:8096/api/jobs";
+const COMPENSATION_TYPES: CompensationType[] = ["fixed", "fixed_incentive", "commission"];
+const MAX_SKILLS = 20;
+const MAX_SKILL_LENGTH = 50;
 
 function isJobStatus(v: unknown): v is JobStatus {
   return v === "open" || v === "closed";
 }
 
-// PATCH updates Description, Status, per-field icons, and/or the CTC
-// frequency / end date extras, and ONLY in our own local stores (see
+function isValidSkillsArray(v: unknown): v is string[] {
+  return (
+    Array.isArray(v) &&
+    v.length <= MAX_SKILLS &&
+    v.every((s) => typeof s === "string" && s.trim().length > 0 && s.trim().length <= MAX_SKILL_LENGTH)
+  );
+}
+
+// PATCH updates Description, Status, per-field icons, and/or anything in
+// src/lib/jobExtras.ts (CTC frequency, end date, category, working days/
+// hours, compensation type, skills), and ONLY in our own local stores (see
 // src/lib/jobDescriptions.ts, src/lib/jobStatus.ts, src/lib/jobFieldIcons.ts,
 // src/lib/jobExtras.ts) — never touches the upstream API. Description: the
-// external API silently drops it on write, so it's our data now. Status,
-// field icons, CTC frequency, and end date: the external API has never had
-// a concept of any of these at all. Body may include any subset of these
-// five, or none (a no-op, not an error).
+// external API silently drops it on write, so it's our data now. Everything
+// else: the external API has never had a concept of any of it. Body may
+// include any subset of these fields, or none (a no-op, not an error).
 //
 // No jobs-list cache invalidation here (see src/lib/jobsCache.ts) — none
 // of these fields are part of the cached upstream snapshot. They're
@@ -70,6 +81,11 @@ export async function PATCH(
       fieldIcons?: unknown;
       ctcFrequency?: unknown;
       endDate?: unknown;
+      category?: unknown;
+      workingDays?: unknown;
+      workingHours?: unknown;
+      compensationType?: unknown;
+      skills?: unknown;
     };
     try {
       body = await req.json();
@@ -82,10 +98,18 @@ export async function PATCH(
       body.status === undefined &&
       body.fieldIcons === undefined &&
       body.ctcFrequency === undefined &&
-      body.endDate === undefined
+      body.endDate === undefined &&
+      body.category === undefined &&
+      body.workingDays === undefined &&
+      body.workingHours === undefined &&
+      body.compensationType === undefined &&
+      body.skills === undefined
     ) {
       return NextResponse.json(
-        { message: "Provide description, status, fieldIcons, ctcFrequency, and/or endDate" },
+        {
+          message:
+            "Provide description, status, fieldIcons, ctcFrequency, endDate, category, workingDays, workingHours, compensationType, and/or skills",
+        },
         { status: 400 }
       );
     }
@@ -132,10 +156,64 @@ export async function PATCH(
       }
     }
 
-    if (body.ctcFrequency !== undefined || body.endDate !== undefined) {
+    if (body.category !== undefined && typeof body.category !== "string") {
+      return NextResponse.json({ message: "category must be a string" }, { status: 400 });
+    }
+
+    if (
+      body.workingDays !== undefined &&
+      (typeof body.workingDays !== "number" || !Number.isInteger(body.workingDays) || body.workingDays < 0 || body.workingDays > 7)
+    ) {
+      return NextResponse.json(
+        { message: "workingDays must be a whole number from 1 to 7, or 0 to clear it" },
+        { status: 400 }
+      );
+    }
+
+    if (body.workingHours !== undefined && typeof body.workingHours !== "string") {
+      return NextResponse.json({ message: "workingHours must be a string" }, { status: 400 });
+    }
+
+    if (
+      body.compensationType !== undefined &&
+      body.compensationType !== null &&
+      !COMPENSATION_TYPES.includes(body.compensationType as CompensationType)
+    ) {
+      return NextResponse.json(
+        { message: `compensationType must be one of: ${COMPENSATION_TYPES.join(", ")}` },
+        { status: 400 }
+      );
+    }
+
+    if (body.skills !== undefined && !isValidSkillsArray(body.skills)) {
+      return NextResponse.json(
+        { message: `skills must be an array of up to ${MAX_SKILLS} non-empty strings, ${MAX_SKILL_LENGTH} characters or fewer each` },
+        { status: 400 }
+      );
+    }
+
+    if (
+      body.ctcFrequency !== undefined ||
+      body.endDate !== undefined ||
+      body.category !== undefined ||
+      body.workingDays !== undefined ||
+      body.workingHours !== undefined ||
+      body.compensationType !== undefined ||
+      body.skills !== undefined
+    ) {
       await setExtras(id, {
         CtcFrequency: body.ctcFrequency as CtcFrequency | undefined,
         EndDate: body.endDate as string | undefined,
+        Category: body.category as string | undefined,
+        WorkingDays: body.workingDays as number | undefined,
+        WorkingHours: body.workingHours as string | undefined,
+        // compensationType has no "clear" convention on the client (see
+        // jobExtras.ts's setExtras) — an explicit null here is treated the
+        // same as omitting the key, i.e. left alone, since there's no
+        // sentinel value that means "unset" for an enum the way "" and 0
+        // work for the string/number fields above.
+        CompensationType: (body.compensationType ?? undefined) as CompensationType | undefined,
+        Skills: body.skills as string[] | undefined,
       });
     }
 

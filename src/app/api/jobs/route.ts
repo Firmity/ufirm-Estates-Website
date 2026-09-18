@@ -36,12 +36,13 @@
 // waiting out the cache TTL).
 //
 // Also merges in locally-stored Description/Status/LinkClicks/FieldIcons/
-// CtcFrequency/EndDate (see src/lib/job*.ts) — the upstream API silently
-// drops, or has never had a concept of, any of these, so none of them are
-// trusted from the upstream response. This merge is NOT part of the cached
-// snapshot — it re-reads its own local stores on every request — so
-// editing a description/status/icon/CTC-frequency/end-date already shows
-// up immediately regardless of the jobs-list cache state.
+// CtcFrequency/EndDate/Category/WorkingDays/WorkingHours/CompensationType/
+// Skills (see src/lib/job*.ts) — the upstream API silently drops, or has
+// never had a concept of, any of these, so none of them are trusted from
+// the upstream response. This merge is NOT part of the cached snapshot —
+// it re-reads its own local stores on every request — so editing any of
+// these fields already shows up immediately regardless of the jobs-list
+// cache state.
 //
 // NOTE: src/app/api/job.ts's original getJobs(search) — used by the OLD
 // /CareerPage — is intentionally left untouched and still hits the
@@ -65,12 +66,13 @@ import { readCache, refreshCache, triggerBackgroundRefresh, FRESH_TTL_MS, STALE_
 // plan with a lower ceiling.
 export const maxDuration = 60;
 
-// Description, Status, LinkClicks, FieldIcons, CtcFrequency, and EndDate
-// are entirely our own data now (see the src/lib/job*.ts files this
-// imports) — this merges all of them into every job by Id, overriding
-// whatever (if anything) the upstream response has for Description and
-// filling in defaults for the rest, which upstream has never had any
-// concept of at all.
+// Description, Status, LinkClicks, FieldIcons, and everything in
+// src/lib/jobExtras.ts (CtcFrequency, EndDate, Category, WorkingDays,
+// WorkingHours, CompensationType, Skills) are entirely our own data now
+// (see the src/lib/job*.ts files this imports) — this merges all of them
+// into every job by Id, overriding whatever (if anything) the upstream
+// response has for Description and filling in defaults for the rest,
+// which upstream has never had any concept of at all.
 async function withLocalData(data: unknown): Promise<unknown> {
   if (!Array.isArray(data)) return data;
   const [descriptions, statuses, clicks, fieldIcons, extras] = await Promise.all([
@@ -96,6 +98,16 @@ async function withLocalData(data: unknown): Promise<unknown> {
       // every job created before today.
       CtcFrequency: jobExtras?.CtcFrequency ?? "annual",
       ...(jobExtras?.EndDate ? { EndDate: jobExtras.EndDate } : {}),
+      // Category/WorkingDays/WorkingHours/CompensationType/Skills — all
+      // genuinely optional, no default to fall back to (unlike
+      // CtcFrequency): a job with none of this set just doesn't render
+      // those fields on the public page (see getJobFields in
+      // CareersPageClient.tsx).
+      ...(jobExtras?.Category ? { Category: jobExtras.Category } : {}),
+      ...(jobExtras?.WorkingDays ? { WorkingDays: jobExtras.WorkingDays } : {}),
+      ...(jobExtras?.WorkingHours ? { WorkingHours: jobExtras.WorkingHours } : {}),
+      ...(jobExtras?.CompensationType ? { CompensationType: jobExtras.CompensationType } : {}),
+      ...(jobExtras?.Skills && jobExtras.Skills.length > 0 ? { Skills: jobExtras.Skills } : {}),
     };
   });
 }

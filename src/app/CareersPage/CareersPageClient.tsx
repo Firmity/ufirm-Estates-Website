@@ -91,13 +91,40 @@ const JOB_DESCRIPTION_CLASS =
 // none set; that's a fully valid state, not a missing-data bug.
 type JobField = { label: string; value: string; iconKey?: string };
 
+// Fixed / Fixed + Incentive / Commission-based — same enum as
+// CompensationTypeRadios in AdminDashboardClient.tsx (see
+// src/lib/jobExtras.ts's CompensationType), just re-labeled for a
+// visitor-facing read rather than a form control.
+const COMPENSATION_TYPE_LABELS: Record<string, string> = {
+  fixed: "Fixed",
+  fixed_incentive: "Fixed + Incentive",
+  commission: "Commission-based",
+};
+
 function getJobFields(job: JobInfo): JobField[] {
   return [
     job.Department && { label: "Department", value: job.Department, iconKey: job.FieldIcons?.Department },
+    // Category is our own local-only field (see src/lib/jobExtras.ts and
+    // src/lib/jobTaxonomy.ts) — placed right after Department since both
+    // are classification, not compensation/schedule, details.
+    job.Category && { label: "Category", value: job.Category },
     job.Designation && { label: "Role", value: job.Designation, iconKey: job.FieldIcons?.Designation },
     job.Type && { label: "Employment Type", value: job.Type, iconKey: job.FieldIcons?.Type },
+    job.WorkingDays && {
+      label: "Working Days",
+      value: `${job.WorkingDays} day${job.WorkingDays === 1 ? "" : "s"}/week`,
+    },
+    job.WorkingHours && { label: "Working Hours", value: job.WorkingHours },
     job.Education && { label: "Education", value: job.Education, iconKey: job.FieldIcons?.Education },
-    job.CTC && { label: "CTC", value: formatCtc(job.CTC, job.CtcFrequency), iconKey: job.FieldIcons?.CTC },
+    // Relabeled from "CTC" — same underlying value/formatting (formatCtc,
+    // src/lib/ctcFormat.ts), just a clearer visitor-facing name.
+    job.CTC && { label: "In-hand CTC", value: formatCtc(job.CTC, job.CtcFrequency), iconKey: job.FieldIcons?.CTC },
+    job.CompensationType && {
+      label: "Compensation Type",
+      value: COMPENSATION_TYPE_LABELS[job.CompensationType] ?? job.CompensationType,
+    },
+    job.Skills &&
+      job.Skills.length > 0 && { label: "Skills", value: job.Skills.join(", ") },
     job.Posted && { label: "Posted", value: job.Posted, iconKey: job.FieldIcons?.Posted },
     // No icon option for Apply By (not one of the admin's six iconable
     // fields — see src/lib/jobFieldIcons.ts) and no icon looks fine here;

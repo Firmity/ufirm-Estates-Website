@@ -13,7 +13,7 @@ import { ADMIN_SESSION_COOKIE, verifySessionCookieValue } from "@/lib/adminAuth"
 import { setDescription } from "@/lib/jobDescriptions";
 import { notifySubscribersOfNewJob } from "@/lib/jobAlerts";
 import { setFieldIcons, type FieldIconMap } from "@/lib/jobFieldIcons";
-import { setExtras, type CtcFrequency } from "@/lib/jobExtras";
+import { setExtras, type CtcFrequency, type CompensationType } from "@/lib/jobExtras";
 import { invalidateJobsListCache } from "@/lib/jobsCache";
 
 const EXTERNAL_JOBS_URL = "https://api.urest.in:8096/api/jobs";
@@ -66,6 +66,17 @@ type NewJobBody = {
   // Local-only, same story as FieldIcons above — see src/lib/jobExtras.ts.
   CtcFrequency?: CtcFrequency;
   EndDate?: string; // ISO yyyy-mm-dd, from <input type="date">
+  // Local-only, same story — see src/lib/jobExtras.ts and
+  // src/lib/jobTaxonomy.ts. Category/Skills values come from
+  // PredefinedSelect (src/components/ui/PredefinedSelect.tsx), which
+  // already registers a brand-new custom entry with
+  // POST /api/admin/job-taxonomy the moment it's added — this route just
+  // stores whatever string(s) it's handed, no taxonomy write here.
+  Category?: string;
+  WorkingDays?: number;
+  WorkingHours?: string;
+  CompensationType?: CompensationType;
+  Skills?: string[];
 };
 
 function isNonEmptyString(v: unknown): v is string {
@@ -73,6 +84,17 @@ function isNonEmptyString(v: unknown): v is string {
 }
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const COMPENSATION_TYPES: CompensationType[] = ["fixed", "fixed_incentive", "commission"];
+const MAX_SKILLS = 20;
+const MAX_SKILL_LENGTH = 50;
+
+function isValidSkillsArray(v: unknown): v is string[] {
+  return (
+    Array.isArray(v) &&
+    v.length <= MAX_SKILLS &&
+    v.every((s) => typeof s === "string" && s.trim().length > 0 && s.trim().length <= MAX_SKILL_LENGTH)
+  );
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -121,6 +143,38 @@ export async function POST(req: NextRequest) {
         { message: "EndDate must be a yyyy-mm-dd date" },
         { status: 400 }
       );
+    }
+
+    if (
+      body.WorkingDays !== undefined &&
+      (typeof body.WorkingDays !== "number" || !Number.isInteger(body.WorkingDays) || body.WorkingDays < 1 || body.WorkingDays > 7)
+    ) {
+      return NextResponse.json(
+        { message: "WorkingDays must be a whole number from 1 to 7" },
+        { status: 400 }
+      );
+    }
+
+    if (body.CompensationType !== undefined && !COMPENSATION_TYPES.includes(body.CompensationType)) {
+      return NextResponse.json(
+        { message: `CompensationType must be one of: ${COMPENSATION_TYPES.join(", ")}` },
+        { status: 400 }
+      );
+    }
+
+    if (body.Skills !== undefined && !isValidSkillsArray(body.Skills)) {
+      return NextResponse.json(
+        { message: `Skills must be an array of up to ${MAX_SKILLS} non-empty strings, ${MAX_SKILL_LENGTH} characters or fewer each` },
+        { status: 400 }
+      );
+    }
+
+    if (body.Category !== undefined && typeof body.Category !== "string") {
+      return NextResponse.json({ message: "Category must be a string" }, { status: 400 });
+    }
+
+    if (body.WorkingHours !== undefined && typeof body.WorkingHours !== "string") {
+      return NextResponse.json({ message: "WorkingHours must be a string" }, { status: 400 });
     }
 
     // The loop above validates every REQUIRED_FIELDS key at runtime, but TS
@@ -204,11 +258,25 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (createdId != null && (body.CtcFrequency !== undefined || body.EndDate)) {
+    if (
+      createdId != null &&
+      (body.CtcFrequency !== undefined ||
+        body.EndDate ||
+        body.Category ||
+        body.WorkingDays ||
+        body.WorkingHours ||
+        body.CompensationType !== undefined ||
+        (body.Skills && body.Skills.length > 0))
+    ) {
       try {
         await setExtras(createdId, {
           CtcFrequency: body.CtcFrequency,
           EndDate: body.EndDate,
+          Category: body.Category,
+          WorkingDays: body.WorkingDays,
+          WorkingHours: body.WorkingHours,
+          CompensationType: body.CompensationType,
+          Skills: body.Skills,
         });
       } catch (err) {
         // Same best-effort treatment as Description/FieldIcons above.

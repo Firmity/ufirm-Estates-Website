@@ -60,8 +60,15 @@ function ToolbarButton({
   );
 }
 
+// No max-height/overflow here on purpose — this used to cap out at 320px
+// with an internal scrollbar, which made a full job description feel cut
+// off/limited even though nothing was actually being truncated. It now
+// grows with its content; the page or modal it sits in already scrolls as
+// a whole once it gets tall (see MODAL_PANEL_CLASS in
+// AdminDashboardClient.tsx), so nothing is lost, just no longer boxed into
+// a tiny fixed-height window.
 const EDITOR_CONTENT_CLASS =
-  "min-h-[140px] max-h-[320px] overflow-y-auto px-3 py-2 focus:outline-none text-sm text-[#131720] " +
+  "min-h-[140px] px-3 py-2 focus:outline-none text-sm text-[#131720] " +
   "[&_h1]:text-xl [&_h1]:font-bold [&_h1]:text-[#1e3143] [&_h1]:mt-2 [&_h1]:mb-1 " +
   "[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-[#1e3143] [&_h2]:mt-2 [&_h2]:mb-1 " +
   "[&_p]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1 " +

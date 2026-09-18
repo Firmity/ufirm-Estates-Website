@@ -115,8 +115,30 @@ const COMPENSATION_TYPE_OPTIONS: { value: CompensationType; label: string }[] = 
 // pay-frequency dropdown and Posted's icon picker (Posted has no input of
 // its own — it's set server-side, see src/app/api/admin/jobs/route.ts) are
 // both handled as special cases in the form JSX below, not through this array.
+// The key type is narrowed to JobDraft's plain string fields only — every
+// other field (ImageUrl/Description/FieldIcons/CtcFrequency/EndDate, plus
+// Category/WorkingDays/WorkingHours/CompensationType/Skills, all wired
+// directly to their own components — see CompensationTypeRadios and
+// JobExtraFieldsSection above) is rendered elsewhere in the form, never
+// through this generic `draft[key]` input. Omitting WorkingHours (a
+// struct) and Skills (an array) here specifically is what keeps
+// `draft[key]` typed as `string` below — widening this list to include
+// them is what broke the build (Vercel: "Type 'WorkingHoursParts' is not
+// assignable to type 'string | ...'" at the `value={draft[key]}` input).
 const FORM_FIELDS: {
-  key: keyof Omit<JobDraft, "ImageUrl" | "Description" | "FieldIcons" | "CtcFrequency" | "EndDate">;
+  key: keyof Omit<
+    JobDraft,
+    | "ImageUrl"
+    | "Description"
+    | "FieldIcons"
+    | "CtcFrequency"
+    | "EndDate"
+    | "Category"
+    | "WorkingDays"
+    | "WorkingHours"
+    | "CompensationType"
+    | "Skills"
+  >;
   label: string;
   placeholder: string;
   iconField?: IconableField;

@@ -461,7 +461,7 @@ export default function AboutusPage() {
             deliverables: "Feasibility → Design → Construction → Handover",
         },
         {
-            href: "/OurInnovation",
+            href: "https://www.firmity.in/",
             icon: <FaMicrochip className="text-[#146995] text-3xl" />,
             label: "03",
             title: "ENHANCE",

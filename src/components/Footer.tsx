@@ -131,7 +131,7 @@ const Footer = () => {
     const productLinks = [
         { label: "Royal Nest Projects", href: "https://www.royalnestgroup.com/" },
         { label: "URest", href: "https://urest.in/" },
-        { label: "Facility Tech", href: "/OurInnovation" },
+        { label: "Facility Tech", href: "https://www.firmity.in/" },
         { label: "Real Estate Advisory", href: "/Management&advisory" },
         { label: "Firmity", href: "https://www.firmity.in" }
     ];

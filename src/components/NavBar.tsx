@@ -243,7 +243,7 @@ export function NavBar() {
                                     onClick={() => {
                                         setIsServicesOpen(false);
                                         setActive(null);
-                                        router.push("/OurInnovation");
+                                        router.push("https://www.firmity.in/");
                                     }}
                                 >
                                     <div className="max-w-[1400px] mx-auto px-6 sm:px-12 md:px-16 lg:px-24 py-4 flex flex-col">

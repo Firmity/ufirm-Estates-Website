@@ -98,7 +98,7 @@ export function NavBar() {
         // Changed icon to ClipboardList for "Facility Management"
         { label: "Facility Management", href: "https://urest.in/", icon: ClipboardList },
         { label: "Royal Nest Projects", href: "https://www.royalnestgroup.com/", icon: Home },
-        { label: "Facility Tech", href: "/OurInnovation", icon: Cpu },
+        { label: "Facility Tech", href: "https://www.firmity.in/", icon: Cpu },
         { label: "Technical Services", href: "/TechnologiesPage", icon: Wrench },
         { label: "Real Estate Advisory", href: "/Management&advisory", icon: Briefcase },
         { label: "About Us", href: "/Aboutuspage", icon: Info },

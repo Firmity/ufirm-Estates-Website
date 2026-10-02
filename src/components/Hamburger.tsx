@@ -92,7 +92,7 @@ export const HamburgerMenu = () => {
               ["Hire", "/CareersPage"],
               ["Facility Management", "https://urest.in/"],
               ["Royal Nest Projects", "https://www.royalnestgroup.com/"],
-              ["Facility Tech", "/OurInnovation"],
+              ["Facility Tech", "https://www.firmity.in/"],
               ["Technical Services", "/TechnologiesPage"],
               ["Real Estate Advisory", "/Management&advisory"],
               ["About Us", "/Aboutuspage"],

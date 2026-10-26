@@ -6,6 +6,7 @@ import { NavBar } from '@/components/NavBar';
 import { BackToTop } from '@/components/BackToTop';
 import { LoginDialog } from '@/components/LoginDialog';
 import { LoginDialogProvider } from '@/components/LoginDialogContext';
+import CookieConsent from '@/components/CookieConsent';
 import dynamic from 'next/dynamic';
 
 const Footer = dynamic(() => import('@/components/Footer'), {
@@ -47,6 +48,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       {children}
       {!isAuthPage && <Footer />}
       {!isAuthPage && <BackToTop />}
+      {/* Shown on every page, including /login — the notice applies site-wide. */}
+      <CookieConsent />
     </LoginDialogProvider>
   );
 }

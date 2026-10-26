@@ -204,7 +204,7 @@ export default function LoginSelectorPage() {
           <div className="flex gap-4">
             {[
               { label: "Privacy",  href: "/PrivacyPolicypage" },
-              { label: "Security", href: "/SecurityPolicyPage" },
+              { label: "Cookies",  href: "/CookiePolicyPage" },
               { label: "Terms",    href: "/TermsofUsePage" },
             ].map(l => (
               <Link

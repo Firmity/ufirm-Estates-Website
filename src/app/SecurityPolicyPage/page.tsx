@@ -1,3 +1,20 @@
+// Security Policy page — intentionally disabled (content commented out below).
+//
+// The route is kept as a stub that returns a 404 instead of deleting the
+// folder, so old links/bookmarks get a clean "not found" rather than a build
+// error, and the original markup stays here if the page is ever restored.
+// Links to this route were removed from the Footer, Sitemap and login pages.
+// To restore: delete this stub and uncomment the original below.
+
+import { notFound } from "next/navigation";
+
+export default function SecurityPolicyPage(): never {
+  notFound();
+}
+
+/* ORIGINAL (commented out) — previous implementation, kept for reference.
+   Not compiled; delete once the new page is signed off.
+
 "use client";
 import Image from "next/image";
 import Link from "next/link";
@@ -51,3 +68,4 @@ export default function SecurityPolicyPage() {
         </div>
     );
 }
+*/

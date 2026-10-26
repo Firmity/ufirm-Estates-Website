@@ -53,7 +53,7 @@ const trustFeatures = [
 
 const legalLinks = [
   { label: "Privacy Policy",  href: "/PrivacyPolicypage" },
-  { label: "Security Policy", href: "/SecurityPolicyPage" },
+  { label: "Cookie Policy",   href: "/CookiePolicyPage" },
   { label: "Terms of Use",    href: "/TermsofUsePage" },
 ];
 

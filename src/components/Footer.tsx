@@ -6,6 +6,7 @@ import { FaLinkedinIn, FaFacebookF, FaInstagram, FaYoutube } from "react-icons/f
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/utils/cn";
+import { openCookieSettings } from "@/lib/cookieConsent";
 
 const SubscribeSuccessModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
     return (
@@ -366,9 +367,17 @@ const Footer = () => {
 
                     <div className="flex flex-col items-center md:items-end gap-2 text-gray-700">
                         <div className="flex flex-wrap justify-center gap-x-2 text-sm font-medium">
-                            <Link href="/SecurityPolicyPage" className="hover:text-blue-600">Security Policy</Link>
-                            <span className="text-gray-400">|</span>
                             <Link href="/PrivacyPolicypage" className="hover:text-blue-600">Privacy Policy</Link>
+                            <span className="text-gray-400">|</span>
+                            <Link href="/CookiePolicyPage" className="hover:text-blue-600">Cookie Policy</Link>
+                            <span className="text-gray-400">|</span>
+                            <button
+                                type="button"
+                                onClick={openCookieSettings}
+                                className="cursor-pointer hover:text-blue-600"
+                            >
+                                Cookie settings
+                            </button>
                             <span className="text-gray-400">|</span>
                             <Link href="/Sitepage" className="hover:text-blue-600">Site Map</Link>
                             <span className="text-gray-400">|</span>

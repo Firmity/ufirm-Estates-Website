@@ -92,14 +92,12 @@
 "use client";
 import Head from "next/head";
 import Link from "next/link";
-import { NavBar } from "@/components/NavBar";
 
 export default function Sitemap() {
     return (
         <>
-            <NavBar />
-
-            {/* pt-[64px] offsets the fixed NavBar height */}
+            {/* The fixed global NavBar comes from src/app/ClientLayout.tsx - do not render another one here.
+                pt-[64px] offsets its height. */}
             <div className="pt-[64px] min-h-screen bg-white py-12 px-6 sm:px-12">
                 <Head>
                     <title>Site Map</title>
@@ -118,8 +116,8 @@ export default function Sitemap() {
                         <h2 className="text-xl font-semibold text-gray-800 mt-8 mb-4">Other links</h2>
                         <ul className="space-y-2 text-gray-700">
                             <li><Link href="/PrivacyPolicypage">➤ Privacy Policy</Link></li>
-                            <li><Link href="/SecurityPolicyPage">➤ Security Policy</Link></li>
-                            <li><Link href="/TermsofUsePage">➤ Terms and Use</Link></li>
+                            <li><Link href="/CookiePolicyPage">➤ Cookie Policy</Link></li>
+                            <li><Link href="/TermsofUsePage">➤ Terms &amp; Conditions</Link></li>
                         </ul>
                     </div>
                     <div>
